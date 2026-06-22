@@ -22,11 +22,11 @@ Multiple worktrees of one repo collide: they share a database, fight over dev po
 ```bash
 git clone https://github.com/<you>/githog
 cd githog
-bun install        # also clones the Effect source into .repos/effect (for the effect-ts dev workflow)
+bun install        # also clones the Effect source into .repos/effect
 bun link           # puts a `githog` binary on your PATH (~/.bun/bin)
 ```
 
-The bin is a live symlink to the source, so a `git pull` updates it with no rebuild.
+The bin is a symlink to the source, so `git pull` updates it.
 
 **Runtime prerequisites** (per command):
 
