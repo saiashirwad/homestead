@@ -6,7 +6,7 @@ factual content, commands, and the config reference accurate. Verify each edit
 against the actual source/CLI so nothing claimed stops being true.
 
 - [x] Tighten the intro (title, tagline, one-paragraph pitch, quickstart block): cut marketing phrasing and redundancy, keep the four example commands accurate
-- [ ] Deslop the "Why" section: collapse the two paragraphs into plain prose, drop the "two halves compose" flourish or state it plainly
+- [x] Deslop the "Why" section: collapse the two paragraphs into plain prose, drop the "two halves compose" flourish or state it plainly
 - [ ] Clean the "Install" section: keep the steps, trim the "live symlink"/"no rebuild" embellishment and prerequisite phrasing
 - [ ] Clean the "Configure" intro + code example comments: remove slop in inline comments, keep config keys correct
 - [ ] Deslop the config reference table: make each "What it controls" cell terse and factual, verify field names/defaults against the source
