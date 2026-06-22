@@ -1,12 +1,12 @@
 {
-  "name": "ghog",
+  "name": "homestead",
   "version": "0.1.0",
   "description": "Give every git worktree its own isolated dev environment — ports, database, .env — and fan GitHub issues out into parallel coding agents, one worktree each.",
   "module": "index.ts",
   "type": "module",
   "bin": {
     "githog": "src/cli.ts",
-    "ghog": "src/cli.ts"
+    "homestead": "src/cli.ts"
   },
   "exports": {
     ".": "./index.ts"
