@@ -88,9 +88,11 @@ Do exactly one slice, then stop:
 
 Then end THIS iteration:
 
-- If every task and criterion is now checked, run \`/code-review\` on the diff and address
-  what it surfaces, then run the full test suite once. ONLY if it passes, emit the
-  completion sentinel exactly: \`${loop.sentinels.completion}\`
+- If every task and criterion is now checked, you MUST review the whole diff before
+  finishing — do not skip this: run \`/code-review\` and address what it surfaces. (If
+  that skill isn't available here, review the diff yourself for bugs and obvious
+  cleanups.) Then run the full test suite once. ONLY when the review is clean AND the
+  suite passes, emit the completion sentinel exactly: \`${loop.sentinels.completion}\`
 - If you hit a decision you cannot make on your own (ambiguous spec, missing credential,
   a destructive or irreversible choice), emit
   \`<${loop.sentinels.blockedTag}>your question here</${loop.sentinels.blockedTag}>\`
