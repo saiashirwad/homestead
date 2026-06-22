@@ -3,7 +3,7 @@ import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { Console, Effect } from "effect";
 import { loadConfig } from "../config.ts";
-import { listen } from "../listen.ts";
+import { DEFAULT_INTERVAL_SECONDS, listen } from "../listen.ts";
 import { OutputCapture } from "../process.ts";
 import { makeTuiConsole } from "./console.ts";
 import { tuiReporter } from "./reporter.ts";
@@ -35,7 +35,7 @@ export const runListenTui = async (): Promise<void> => {
     initialState({
       repoName: "…",
       readyLabel: config.listen?.label ?? "agent:ready",
-      intervalSeconds: config.listen?.intervalSeconds ?? 30,
+      intervalSeconds: config.listen?.intervalSeconds ?? DEFAULT_INTERVAL_SECONDS,
       maxConcurrent: config.listen?.maxConcurrent ?? 3,
     }),
   );
