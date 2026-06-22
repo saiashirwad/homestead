@@ -3,12 +3,14 @@ import {
   advance,
   decide,
   parseOutcome,
+  rememberSession,
   resolveLoopSettings,
+  resumeArg,
   type LoopState,
   type Outcome,
   type Terminal,
 } from "./loop.ts";
-import { capture, captureStreaming, runExit } from "./process.ts";
+import { capture, captureAgent, runExit } from "./process.ts";
 import { iterationPrompt, planPrompt, skillPresent } from "./skills.ts";
 import { markBlocked, markReview } from "./tracking.ts";
 import type { AgentConfig, IssuesConfig, LoopPromptContext, WorkItem } from "./types.ts";
@@ -113,10 +115,17 @@ export const runLoop = Effect.fn("githog/run-loop")(function* (
     blockedTag: loop.sentinels.blockedTag,
   };
 
-  // One headless agent invocation: a fresh process (= clean context), output
-  // streamed live to the pane AND captured for sentinel parsing.
-  const invoke = (prompt: string) =>
-    captureStreaming(bin ?? "claude", [...baseArgs, "-p", prompt], { cwd: worktreeDir });
+  // One headless agent invocation. `--output-format stream-json --verbose` makes
+  // claude emit a structured NDJSON event stream (captureAgent parses it: live
+  // text to the pane, plus the final result + session id). In amnesia mode (the
+  // default) `resume` is empty so each invocation is a fresh context; in resume
+  // mode it carries `--resume <session-id>` so context continues (ADR-0002).
+  const invoke = (prompt: string, resume: ReadonlyArray<string>) =>
+    captureAgent(
+      bin ?? "claude",
+      [...baseArgs, ...resume, "-p", prompt, "--output-format", "stream-json", "--verbose"],
+      { cwd: worktreeDir },
+    );
 
   const finish = Effect.fn("githog/runner/finish")(function* (terminal: Terminal) {
     if (terminal._tag === "Complete") {
@@ -162,14 +171,18 @@ export const runLoop = Effect.fn("githog/run-loop")(function* (
       : agent.loop?.iterationPrompt?.(ctx) ?? iterationPrompt(loop.implementSkill, implementSkillPresent, ctx);
     yield* Console.log(
       isPlan
-        ? `\n▸ #${item.number} — plan pass`
-        : `\n▸ #${item.number} — iteration ${state.iterations + 1}/${loop.maxIterations}`,
+        ? `\n▸ #${item.number} — plan pass${loop.resume ? "" : " (fresh context)"}`
+        : `\n▸ #${item.number} — iteration ${state.iterations + 1}/${loop.maxIterations}${
+            loop.resume && state.sessionId !== undefined ? " (resumed)" : ""
+          }`,
     );
-    const { output } = yield* invoke(prompt);
+    const { result, sessionId } = yield* invoke(prompt, resumeArg(state, loop));
     // The plan pass writes a git-ignored task file and commits nothing; iterations
     // own their own commits of real work. So there's no scaffolding commit here.
-    state = advance(state, action);
-    outcome = parseOutcome(output, loop.sentinels);
+    // Record the session id BEFORE advancing so a resume-mode loop continues the
+    // same conversation next iteration; a no-op in amnesia mode.
+    state = rememberSession(advance(state, action), sessionId);
+    outcome = parseOutcome(result, loop.sentinels);
     // Guard: a plan pass that emitted no sentinel but produced no task list has
     // nothing to iterate on (denied tool, agent slip). Block instead of burning
     // the whole iteration cap on a missing plan.

@@ -86,6 +86,10 @@ export default defineConfig({
       // completionSentinel / blockedTag / planSkill / implementSkill / taskFile
       // all have sensible defaults; override only if you need to. The
       // githog-plan / githog-implement skills are seeded into each worktree.
+      resume: false, // ADR-0002: false (default) = fresh context per iteration
+      // (amnesia, ADR-0001). true = resume the same claude session each iteration
+      // so context carries forward — trades the clean-context quality floor for
+      // continuity. Flip to A/B the two on real issues.
     },
   },
 

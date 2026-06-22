@@ -4,9 +4,13 @@ import {
   decide,
   DEFAULT_SENTINELS,
   parseOutcome,
+  rememberSession,
+  resolveLoopSettings,
+  resumeArg,
   type Action,
   type LoopState,
   type Outcome,
+  type ResolvedLoop,
 } from "./loop.ts";
 
 const state = (over: Partial<LoopState> = {}): LoopState => ({
@@ -126,4 +130,52 @@ test("advance: Finish leaves state unchanged", () => {
 test("DEFAULT_SENTINELS are the documented tokens", () => {
   expect(DEFAULT_SENTINELS.completion).toBe("<promise>COMPLETE</promise>");
   expect(DEFAULT_SENTINELS.blockedTag).toBe("blocked");
+});
+
+// --- continuity (ADR-0002): resolveLoopSettings / resumeArg / rememberSession ---
+
+const resolved = (over: Partial<ResolvedLoop> = {}): ResolvedLoop => ({
+  maxIterations: 5,
+  sentinels: DEFAULT_SENTINELS,
+  planSkill: "githog-plan",
+  implementSkill: "githog-implement",
+  taskFile: "TASKS.md",
+  resume: false,
+  ...over,
+});
+
+test("resolveLoopSettings: resume defaults to false (amnesia per ADR-0001)", () => {
+  expect(resolveLoopSettings().resume).toBe(false);
+  expect(resolveLoopSettings({}).resume).toBe(false);
+  expect(resolveLoopSettings({ resume: true }).resume).toBe(true);
+});
+
+test("resumeArg: amnesia mode never resumes, even with a session id", () => {
+  expect(resumeArg(state({ sessionId: "sess-1" }), resolved({ resume: false }))).toEqual([]);
+});
+
+test("resumeArg: resume mode omits on the first invocation (no session yet)", () => {
+  expect(resumeArg(state(), resolved({ resume: true }))).toEqual([]);
+  expect(resumeArg(state({ sessionId: undefined }), resolved({ resume: true }))).toEqual([]);
+});
+
+test("resumeArg: resume mode carries --resume once a session id is known", () => {
+  expect(resumeArg(state({ sessionId: "sess-1" }), resolved({ resume: true }))).toEqual([
+    "--resume",
+    "sess-1",
+  ]);
+});
+
+test("rememberSession: keeps the latest non-empty id, ignores undefined/empty", () => {
+  expect(rememberSession(state(), "sess-1").sessionId).toBe("sess-1");
+  // a later invocation forked a new id -> follow it
+  expect(rememberSession(state({ sessionId: "sess-1" }), "sess-2").sessionId).toBe("sess-2");
+  // no id reported -> keep the prior one (don't clobber)
+  expect(rememberSession(state({ sessionId: "sess-1" }), undefined).sessionId).toBe("sess-1");
+  expect(rememberSession(state({ sessionId: "sess-1" }), "").sessionId).toBe("sess-1");
+});
+
+test("rememberSession: preserves the rest of the state", () => {
+  const s = state({ planned: true, iterations: 3 });
+  expect(rememberSession(s, "sess-9")).toEqual({ ...s, sessionId: "sess-9" });
 });

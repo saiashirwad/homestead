@@ -97,6 +97,11 @@ export interface LoopConfig {
   readonly planSkill?: string | undefined; // skill invoked for the plan pass (default "githog-plan")
   readonly implementSkill?: string | undefined; // skill invoked per iteration (default "githog-implement")
   readonly taskFile?: string | undefined; // durable cross-iteration task list (default "TASKS.md")
+  // Continuity (ADR-0002), default false. false keeps ADR-0001 amnesia: every
+  // iteration is a fresh claude context and `taskFile` is the only memory. true
+  // resumes the prior claude session each iteration so context carries forward —
+  // opt in per project to trade the clean-context quality floor for continuity.
+  readonly resume?: boolean | undefined;
   // Override the built-in prompt text. When set, used verbatim instead of the
   // `/<skill>`-or-fallback prompt the runner builds.
   readonly planPrompt?: ((ctx: LoopPromptContext) => string) | undefined;

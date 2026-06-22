@@ -165,6 +165,7 @@ export const planPrompt = (skillName: string, present: boolean, ctx: LoopPromptC
           planSkill: skillName,
           implementSkill: skillName,
           taskFile: ctx.taskFile,
+          resume: false,
         }),
       );
 
@@ -179,5 +180,6 @@ export const iterationPrompt = (skillName: string, present: boolean, ctx: LoopPr
           planSkill: skillName,
           implementSkill: skillName,
           taskFile: ctx.taskFile,
+          resume: false,
         }),
       );

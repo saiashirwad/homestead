@@ -27,11 +27,16 @@ export type Outcome =
   | { readonly _tag: "Blocked"; readonly reason: string };
 
 // The loop's cross-iteration state. Mirrors the durable facts: has the plan pass
-// run, how many iterations have completed, and the cap that backstops a stuck loop.
+// run, how many iterations have completed, the cap that backstops a stuck loop,
+// and (continuity mode only) the claude session id to resume into next invocation.
 export interface LoopState {
   readonly planned: boolean;
   readonly iterations: number;
   readonly maxIterations: number;
+  // The session id returned by the most recent invocation. `undefined` until the
+  // first invocation reports one. Carried so a resume-mode loop continues the SAME
+  // conversation across iterations; ignored entirely in amnesia mode.
+  readonly sessionId?: string | undefined;
 }
 
 // A terminal verdict for the loop — drives the completion vs blocked handoff.
@@ -93,6 +98,10 @@ export interface ResolvedLoop {
   readonly planSkill: string;
   readonly implementSkill: string;
   readonly taskFile: string;
+  // Continuity (ADR-0002): false (default) keeps ADR-0001 amnesia — every
+  // invocation is a fresh context. true resumes the prior claude session each
+  // iteration, so context carries forward (TASKS.md stops being the only memory).
+  readonly resume: boolean;
 }
 
 export const resolveLoopSettings = (loop?: LoopConfig): ResolvedLoop => ({
@@ -104,7 +113,22 @@ export const resolveLoopSettings = (loop?: LoopConfig): ResolvedLoop => ({
   planSkill: loop?.planSkill ?? "githog-plan",
   implementSkill: loop?.implementSkill ?? "githog-implement",
   taskFile: loop?.taskFile ?? "TASKS.md",
+  resume: loop?.resume ?? false,
 });
+
+// The `--resume <id>` args for the NEXT invocation, or `[]` when none apply.
+// Resuming needs both: continuity mode on AND a session id from a prior run (so
+// the first invocation always starts fresh — there is nothing to resume into yet).
+// Pure, so the continuity decision is unit-testable without spawning claude.
+export const resumeArg = (state: LoopState, resolved: ResolvedLoop): ReadonlyArray<string> =>
+  resolved.resume && state.sessionId !== undefined ? ["--resume", state.sessionId] : [];
+
+// Fold the session id reported by an invocation into the loop state. We keep the
+// LATEST non-empty id rather than the first, so it stays correct whether claude
+// continues the same session on `--resume` or forks a new id — next iteration
+// always resumes whatever the last one actually wrote.
+export const rememberSession = (state: LoopState, sessionId: string | undefined): LoopState =>
+  sessionId === undefined || sessionId === "" ? state : { ...state, sessionId };
 
 // Evolve the loop state after an action has run. RunPlan records that planning
 // happened; RunIteration counts the iteration; Finish is terminal (no change).

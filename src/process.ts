@@ -79,11 +79,26 @@ export const run = Effect.fn("githog/run")(function* (
   return code;
 });
 
-// Run a subprocess, streaming each output line live to our stdout (so it scrolls
-// in the herdr pane the loop runs in) AND accumulating the full output, returned
-// alongside the exit code. The agent loop needs claude -p's output BOTH watchable
-// and parseable for sentinels — `capture` hides it, `runExit` discards it.
-export const captureStreaming = Effect.fn("githog/capture-streaming")(function* (
+// What one structured agent invocation yields back to the loop runner: the exit
+// code, the agent's final result TEXT (parsed for sentinels — far cleaner than
+// grepping the whole noisy stream), the claude session id (for resume-mode
+// continuity), and a coarse stop reason for logging.
+export interface AgentInvocation {
+  readonly code: number;
+  readonly result: string;
+  readonly sessionId: string | undefined;
+  readonly stopReason: string | undefined;
+}
+
+// Run claude in `--output-format stream-json` mode and interpret its NDJSON event
+// envelope (ADR-0002). Each assistant text block is re-emitted live so the run
+// still scrolls watchably in the herdr pane, while the structured `result` /
+// `session_id` are captured for the loop's decision + continuity — replacing the
+// old "stream raw text, grep stdout for a magic string" approach. The caller
+// supplies the claude args (including `-p <prompt>`, `--output-format stream-json
+// --verbose`, and any `--resume <id>`); stdout carries the JSON, stderr is echoed
+// raw. Non-JSON stdout lines (stray warnings) are echoed rather than dropped.
+export const captureAgent = Effect.fn("githog/capture-agent")(function* (
   command: string,
   args: ReadonlyArray<string>,
   options?: RunOptions,
@@ -98,15 +113,50 @@ export const captureStreaming = Effect.fn("githog/capture-streaming")(function* 
         // from argv; without this it blocks ~3s each invocation waiting on stdin.
         ChildProcess.make(command, args, { ...makeOptions(options), stdin: "ignore", stdout: "pipe", stderr: "pipe" }),
       );
-      const lines: Array<string> = [];
-      const drain = Stream.runForEach(Stream.splitLines(Stream.decodeText(handle.all)), (line) =>
+
+      let result = "";
+      let assistantText = "";
+      let sessionId: string | undefined;
+      let stopReason: string | undefined;
+
+      const onJsonLine = (line: string) =>
         Effect.gen(function* () {
-          lines.push(line);
-          yield* Console.log(line);
-        }),
+          const trimmed = line.trim();
+          if (trimmed === "") return;
+          let evt: Record<string, unknown>;
+          try {
+            evt = JSON.parse(trimmed) as Record<string, unknown>;
+          } catch {
+            yield* Console.log(line); // not JSON (a stray warning) — show it, don't drop it
+            return;
+          }
+          if (typeof evt["session_id"] === "string") sessionId = evt["session_id"];
+
+          if (evt["type"] === "assistant") {
+            const message = evt["message"] as { content?: ReadonlyArray<Record<string, unknown>> } | undefined;
+            for (const block of message?.content ?? []) {
+              if (block["type"] === "text" && typeof block["text"] === "string") {
+                assistantText += `${block["text"]}\n`;
+                yield* Console.log(block["text"]);
+              } else if (block["type"] === "tool_use" && typeof block["name"] === "string") {
+                yield* Console.log(`  ⚙ ${block["name"]}`);
+              }
+            }
+          } else if (evt["type"] === "result") {
+            if (typeof evt["result"] === "string") result = evt["result"];
+            const subtype = typeof evt["subtype"] === "string" ? evt["subtype"] : undefined;
+            stopReason = evt["is_error"] === true ? `error${subtype ? `:${subtype}` : ""}` : subtype;
+          }
+        });
+
+      const drainOut = Stream.runForEach(Stream.splitLines(Stream.decodeText(handle.stdout)), onJsonLine);
+      const drainErr = Stream.runForEach(Stream.splitLines(Stream.decodeText(handle.stderr)), (line) =>
+        Console.log(line),
       );
-      const [, code] = yield* Effect.all([drain, handle.exitCode], { concurrency: "unbounded" });
-      return { code: Number(code), output: lines.join("\n") };
+      const [, , code] = yield* Effect.all([drainOut, drainErr, handle.exitCode], { concurrency: "unbounded" });
+      // Fall back to the streamed assistant text if no result event arrived (e.g. a
+      // crash mid-turn), so the runner still has something to parse for sentinels.
+      return { code: Number(code), result: result === "" ? assistantText : result, sessionId, stopReason };
     }),
   ).pipe(Effect.orDie);
 });
