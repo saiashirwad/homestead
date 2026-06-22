@@ -67,6 +67,15 @@ export interface EnvConfig {
   readonly derive?: ((ctx: WorktreeContext) => Record<string, string>) | undefined;
 }
 
+// `githog listen` — poll the repo and auto-implement issues that carry the
+// trigger label. The label is the queue: githog claims an issue by swapping it
+// from `label` to the issues.label ("agent:wip") so it isn't picked up twice.
+export interface ListenConfig {
+  readonly label?: string | undefined; // trigger label (default "agent:ready")
+  readonly intervalSeconds?: number | undefined; // poll cadence (default 30)
+  readonly maxConcurrent?: number | undefined; // max active agents, counted by agent:wip (default 3)
+}
+
 export interface AgentConfig {
   readonly command?: ReadonlyArray<string> | undefined; // default ["claude"]
   readonly readyMarker?: string | undefined; // regex matched in pane output before sending
@@ -78,8 +87,25 @@ export interface AgentConfig {
   readonly prompt: (item: WorkItem) => string; // initial text typed once the agent is ready
 }
 
+// Context handed to a custom `issues.comment` function when an agent starts.
+export interface TrackingContext {
+  readonly number: number;
+  readonly url: string;
+  readonly title: string;
+  readonly branch: string;
+  readonly worktreeDir: string;
+  readonly host: string;
+}
+
 export interface IssuesConfig {
   readonly branch?: ((item: WorkItem) => string) | undefined; // default String(item.number)
+  // Opt-in: reflect agent activity back onto the GitHub issue. Applied on
+  // implement-issues, reversed on kill. Omit all three to never touch issues.
+  readonly label?: string | undefined; // add on start (auto-created), remove on kill — e.g. "agent:wip"
+  readonly assign?: boolean | undefined; // assign the gh user (@me) on start, unassign on kill
+  // post a comment on start (true = default message; a function = custom). A
+  // matching "stopped" comment is posted on kill.
+  readonly comment?: boolean | ((ctx: TrackingContext) => string) | undefined;
 }
 
 // The single per-project control surface, authored as githog.config.ts via
@@ -96,6 +122,7 @@ export interface GithogConfig {
   readonly setup?: ReadonlyArray<SetupStep> | undefined;
   readonly agent?: AgentConfig | undefined;
   readonly issues?: IssuesConfig | undefined;
+  readonly listen?: ListenConfig | undefined;
   // Effect escape hatch: arbitrary provisioning after the declarative setup steps,
   // with the full platform at hand. Runs before the agent launches.
   readonly afterSetup?:

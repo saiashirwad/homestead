@@ -1,5 +1,6 @@
 import { Console, Effect, Schema } from "effect";
 import { capture, runExit } from "./process.ts";
+import { markStopped } from "./tracking.ts";
 
 // `githog kill` — the inverse of implement-issues/setup. For a branch it: closes
 // the herdr worktree workspace (which also removes the git worktree), reconciles
@@ -52,8 +53,16 @@ const herdrWorkspaceForBranch = Effect.fn("githog/herdr-workspace")(function* (
   return list.result.worktrees.find((wt) => wt.branch === branch)?.open_workspace_id ?? undefined;
 });
 
-export const killBranch = Effect.fn("githog/kill-branch")(function* (primaryRoot: string, branch: string) {
+export const killBranch = Effect.fn("githog/kill-branch")(function* (
+  primaryRoot: string,
+  repoName: string,
+  branch: string,
+) {
   yield* Console.log(`\n▸ Killing '${branch}'`);
+
+  // 0. reverse any GitHub issue signals githog applied at launch (opt-in; reads a
+  // state file, so config-free and a no-op when nothing was tracked).
+  yield* markStopped(repoName, branch);
 
   // 1. herdr: remove the worktree workspace. This closes the workspace AND removes
   // the git worktree (but not the branch). Best-effort: herdr may not be running.

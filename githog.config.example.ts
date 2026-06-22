@@ -58,12 +58,27 @@ export default defineConfig({
   ],
 
   // implement-issues: branch == issue number, send `/implement <url>` to the agent.
+  // The label/assign/comment fields are opt-in issue tracking: githog adds them
+  // when an agent starts and removes them on `githog kill`, so the issue tracker
+  // shows what an agent is actively working. Omit them to never touch issues.
   issues: {
     branch: (item) => String(item.number),
+    label: "agent:wip", // added on start (auto-created), removed on kill
+    assign: true, // assign the gh user (@me) on start, unassign on kill
+    comment: true, // post a 🤖 start comment + 🛑 stop comment (or a function for custom text)
   },
   agent: {
     command: ["claude"],
     surface: "worktree", // nest each agent under the repo's workspace in herdr
     prompt: (item) => `/implement ${item.url}`,
+  },
+
+  // `githog listen` — poll the repo and auto-implement any open issue labelled
+  // with `label`. githog claims it (swaps the label to issues.label, "agent:wip")
+  // and runs the same flow as implement-issues, up to maxConcurrent at a time.
+  listen: {
+    label: "agent:ready",
+    intervalSeconds: 30,
+    maxConcurrent: 3,
   },
 });

@@ -4,7 +4,9 @@ import { Console, Effect } from "effect";
 import { loadConfig } from "./config.ts";
 import { launchAgent } from "./herdr.ts";
 import { currentRepoSlug, parseIssueArg, resolveIssue, type IssueRef } from "./issues.ts";
+import { listen } from "./listen.ts";
 import { killBranch } from "./teardown.ts";
+import { markStarted } from "./tracking.ts";
 import { resolveRepo, setupWorktree } from "./worktree.ts";
 import type { WorktreeOptions } from "./types.ts";
 
@@ -68,7 +70,9 @@ const implementIssuesCommand = Effect.fn("githog/cli/implement-issues")(
       return yield* fail("[githog] config has no `agent` block — implement-issues needs one to launch claude.");
     }
     const agent = config.agent;
-    const branchOf = config.issues?.branch ?? ((item: { number: number }) => String(item.number));
+    const issues = config.issues ?? {};
+    const branchOf = issues.branch ?? ((item: { number: number }) => String(item.number));
+    const repo = yield* resolveRepo();
 
     // A URL pins owner/repo — it must match the repo you're standing in, since the
     // worktree is branched from the local clone here (no cross-repo resolution).
@@ -96,11 +100,17 @@ const implementIssuesCommand = Effect.fn("githog/cli/implement-issues")(
       setupWorktree(config, { create: branchOf(item) }),
     );
 
-    // Phase 2 — launch agents. The wait-for-ready already gates each send.
-    const pairs = items.map((item, i) => ({ item, plan: plans[i] }));
+    // Phase 2 — launch each agent, then mark its issue (opt-in via config.issues).
+    const pairs = items.map((item, i) => ({ item, plan: plans[i], branch: branchOf(item) }));
     yield* Effect.forEach(
       pairs,
-      ({ item, plan }) => (plan === undefined ? Effect.void : launchAgent(item, plan.targetDir, agent)),
+      ({ item, plan, branch }) =>
+        plan === undefined
+          ? Effect.void
+          : Effect.gen(function* () {
+              yield* launchAgent(item, plan.targetDir, agent);
+              yield* markStarted(repo.repoName, item, branch, plan.targetDir, issues);
+            }),
       { discard: true },
     );
 
@@ -110,6 +120,16 @@ const implementIssuesCommand = Effect.fn("githog/cli/implement-issues")(
   },
 );
 
+// --- `githog listen` — poll the repo and auto-implement `agent:ready` issues --
+
+const listenCommand = Effect.fn("githog/cli/listen")(function* () {
+  if (process.env.HERDR_ENV !== "1") {
+    return yield* fail("[githog] not inside a herdr pane (HERDR_ENV != 1) — run listen from a herdr terminal.");
+  }
+  const config = yield* loadConfig(process.cwd());
+  yield* listen(config);
+});
+
 // --- `githog kill <branch>...` — tear a worktree + branch + herdr surface down -
 
 const killCommand = Effect.fn("githog/cli/kill")(function* () {
@@ -118,7 +138,9 @@ const killCommand = Effect.fn("githog/cli/kill")(function* () {
     return yield* fail("usage: githog kill <branch-or-issue>...");
   }
   const repo = yield* resolveRepo();
-  yield* Effect.forEach(branches, (branch) => killBranch(repo.primaryRoot, branch), { discard: true });
+  yield* Effect.forEach(branches, (branch) => killBranch(repo.primaryRoot, repo.repoName, branch), {
+    discard: true,
+  });
   yield* Console.log(`\n✅ killed ${branches.length}: ${branches.join(", ")}`);
 });
 
@@ -130,6 +152,7 @@ usage:
   githog setup [--create <branch>] [--from <ref>] [--dir <path>] [--no-setup] [--dry-run]
   githog implement-issues <issue>...     (issue = number or GitHub issue URL)
   githog <issue>...                      (bare form, implies implement-issues)
+  githog listen                          (poll for 'agent:ready' issues, auto-implement)
   githog kill <branch-or-issue>...       (remove worktree + branch + herdr surface)
                                          (issue commands run inside a herdr pane)`;
 
@@ -137,11 +160,13 @@ const refs = issueRefs();
 const program =
   process.argv[2] === "setup"
     ? setupCommand()
-    : process.argv[2] === "kill"
-      ? killCommand()
-      : refs.length > 0
-        ? implementIssuesCommand(refs)
-        : fail(USAGE);
+    : process.argv[2] === "listen"
+      ? listenCommand()
+      : process.argv[2] === "kill"
+        ? killCommand()
+        : refs.length > 0
+          ? implementIssuesCommand(refs)
+          : fail(USAGE);
 
 program.pipe(
   Effect.catchTags({

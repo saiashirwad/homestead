@@ -7,6 +7,7 @@ githog gives every git worktree its own isolated dev environment — its own por
 ```bash
 githog setup --create my-feature        # isolate a new worktree (ports, .env, services, setup)
 githog implement-issues 21 22 23         # one worktree + agent per issue, in parallel
+githog listen                            # auto-implement issues labelled `agent:ready`
 githog kill my-feature                   # remove the worktree, branch, and agent surface
 ```
 
@@ -30,8 +31,8 @@ The bin is a live symlink to the source, so a `git pull` updates it with no rebu
 **Runtime prerequisites** (per command):
 
 - `git` — always
-- `gh` (authenticated) — for `implement-issues`
-- a herdr terminal session — for `implement-issues` and the herdr side of `kill`
+- `gh` (authenticated) — for `implement-issues`, `listen`, and issue tracking
+- a herdr terminal session — for `implement-issues`, `listen`, and the herdr side of `kill`
 
 ## Configure
 
@@ -85,7 +86,23 @@ export default defineConfig({
 | `agent` | `command` (default `["claude"]`), `surface` (`"worktree"` nests under the repo, `"workspace"`, or `"tab"`), `readyMarker`/`readyTimeoutMs`, and the initial `prompt(item)`. |
 | `worktreeDir` | where new worktrees land (default `~/worktrees/<repo>/<slug>`). |
 | `issues.branch` | branch name per issue (default the issue number). |
+| `issues.label` / `issues.assign` / `issues.comment` | **opt-in** issue tracking — see below. |
 | `afterSetup` | an Effect escape hatch for arbitrary provisioning, with the full Bun platform (`FileSystem`, `Path`, subprocess) in scope. |
+
+### Issue tracking (opt-in)
+
+So you can see at a glance which issues an agent is on, githog can mark the GitHub issue when an agent **starts** and reverse it on `kill`. All three are opt-in — omit them and githog never touches your tracker.
+
+```ts
+issues: {
+  label: "agent:wip",                          // add on start (auto-created), remove on kill
+  assign: true,                                // assign the gh user (@me) on start, unassign on kill
+  comment: true,                               // 🤖 start comment + 🛑 stop comment
+  // comment: (ctx) => `started on ${ctx.branch} @ ${ctx.host}`,  // ...or custom text
+}
+```
+
+githog records what it applied (per repo+branch, under `~/.githog/state/`) so `kill` reverses *exactly* what githog set — nothing else, even with custom branch names. Every gh call is best-effort: a failure warns and continues, it never aborts provisioning or teardown. "Done" is still signaled by your PR/merge — githog only knows *start* (`implement-issues`) and *stop* (`kill`).
 
 A config can also be a plain `export default { ... }` (no `githog` import) when the package isn't resolvable from the repo — handy in projects on a different package manager.
 
@@ -118,6 +135,28 @@ githog https://github.com/<you>/myapp/issues/21
 An issue can be a number or a full GitHub issue URL. A URL is a convenience over the number — it must point at the repo you're running in (the worktree is branched from the local clone here; githog does no cross-repo lookup or cloning), and a URL for a different repo is rejected with a clear message.
 
 Worktrees are provisioned **sequentially** (the port scanner reads sibling `.env` files, so parallel setup would hand out colliding ports); the wait-for-ready gate then sequences each agent launch.
+
+### `githog listen`
+
+Watch the repo and auto-implement issues as they're queued. Run it in a long-lived herdr pane.
+
+```bash
+githog listen
+```
+
+Label an issue **`agent:ready`** and githog picks it up: it claims the issue (swaps the label to `agent:wip` so it's never grabbed twice), then runs the same flow as `implement-issues` — provision a worktree, launch the agent, mark the issue. The label *is* the queue:
+
+```
+agent:ready ──(githog claims)──► agent:wip ──(your PR / githog kill)──► done
+```
+
+It polls every `intervalSeconds` (default 30), never spawns more than `maxConcurrent` agents (default 3, gauged by counting open `agent:wip` issues), and skips any issue whose branch already exists. A failure on one issue — or one poll — logs and continues; the daemon doesn't die.
+
+```ts
+listen: { label: "agent:ready", intervalSeconds: 30, maxConcurrent: 3 }
+```
+
+Detection is **polling** (a local CLI can't receive GitHub webhooks), which needs no infra and works behind NAT. Since claiming is a label swap, there's a tiny race window if you run `listen` on two machines against one repo — fine for a single dev box.
 
 ### `githog kill`
 

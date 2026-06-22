@@ -8,6 +8,7 @@ export { defineConfig, loadConfig } from "./src/config.ts";
 export { setupWorktree } from "./src/worktree.ts";
 export { resolveIssue } from "./src/issues.ts";
 export { launchAgent } from "./src/herdr.ts";
+export { listen } from "./src/listen.ts";
 export { ConfigInvalid, ConfigNotFound, ServiceUnavailable } from "./src/errors.ts";
 export type {
   AgentConfig,
@@ -15,10 +16,12 @@ export type {
   GithogConfig,
   GithogServices,
   IssuesConfig,
+  ListenConfig,
   Plan,
   PortSpec,
   ServiceSpec,
   SetupStep,
+  TrackingContext,
   WorkItem,
   WorktreeContext,
   WorktreeOptions,
