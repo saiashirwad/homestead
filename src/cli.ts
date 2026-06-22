@@ -12,6 +12,7 @@ import { capture } from "./process.ts";
 import { runLoop } from "./runner.ts";
 import { killBranch } from "./teardown.ts";
 import { markStarted } from "./tracking.ts";
+import { resolveVersion } from "./version.ts";
 import { resolveRepo, setupWorktree } from "./worktree.ts";
 import type { WorktreeOptions } from "./types.ts";
 
@@ -185,12 +186,17 @@ usage:
   githog listen                          (poll for 'agent:ready' issues, auto-implement)
   githog loop <issue>                    (drive the agent loop for one issue — run by githog inside a pane)
   githog kill <branch-or-issue>...       (remove worktree + branch + herdr surface)
+  githog version | --version | -v        (print githog's version)
                                          (issue commands run inside a herdr pane)`;
 
 // `listen` renders the live TUI dashboard on an interactive terminal (OpenTUI
 // owns the screen and runs the Effect loop forked inside it). Piped/non-TTY, or
 // with --plain, it falls back to the line-logging path below.
-if (process.argv[2] === "listen" && process.stdout.isTTY && !hasFlag("plain")) {
+// `version` short-circuits before any config loading — it must work outside a
+// githog repo. `hasFlag` only matches `--long` flags, so `-v` needs its own check.
+if (process.argv[2] === "version" || hasFlag("version") || process.argv.includes("-v")) {
+  console.log(await resolveVersion());
+} else if (process.argv[2] === "listen" && process.stdout.isTTY && !hasFlag("plain")) {
   await runListenTui();
 } else {
   const refs = issueRefs();
