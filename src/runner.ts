@@ -2,7 +2,9 @@ import { Console, Effect, FileSystem } from "effect";
 import {
   advance,
   decide,
+  gateVerdict,
   parseOutcome,
+  parseReview,
   rememberSession,
   resolveLoopSettings,
   resumeArg,
@@ -11,7 +13,7 @@ import {
   type Terminal,
 } from "./loop.ts";
 import { capture, captureAgent, runExit } from "./process.ts";
-import { iterationPrompt, planPrompt, skillPresent } from "./skills.ts";
+import { iterationPrompt, planPrompt, reviewPrompt, skillPresent } from "./skills.ts";
 import { markBlocked, markReview } from "./tracking.ts";
 import type { AgentConfig, IssuesConfig, LoopPromptContext, WorkItem } from "./types.ts";
 
@@ -83,9 +85,13 @@ const openPr = Effect.fn("homestead/runner/open-pr")(function* (cwd: string, ite
 // The per-issue agent loop (ADR-0001): a thin IO shell around the pure core
 // (loop.ts). Runs a one-shot plan pass, then re-invokes the agent headlessly with
 // a clean context each iteration — parsing each output for sentinels — until the
-// pure `decide` says to finish. On Complete: PR + agent:review (worktree left
-// alive). On Blocked (cap exhausted or `<blocked>`): push + agent:blocked + the
-// reason as a comment. Runs INSIDE the herdr pane so iterations are watchable.
+// pure `decide` says to finish. With review-converge on (ADR-0003), a builder
+// Complete first clears the machine gate (RunGate: runExit the verify command) and
+// a fresh-context reviewer (RunReview: invoked with resume forced empty); findings
+// and gate failures fold into the task file as fix tasks and the loop rebuilds. On
+// Complete: PR + agent:review (worktree left alive). On Blocked (cap exhausted,
+// `<blocked>`, or non-converged review): push + agent:blocked + the reason as a
+// comment. Runs INSIDE the herdr pane so iterations are watchable.
 export const runLoop = Effect.fn("homestead/run-loop")(function* (
   item: WorkItem,
   worktreeDir: string,
@@ -108,12 +114,29 @@ export const runLoop = Effect.fn("homestead/run-loop")(function* (
 
   const planSkillPresent = yield* skillPresent(worktreeDir, loop.planSkill);
   const implementSkillPresent = yield* skillPresent(worktreeDir, loop.implementSkill);
+  const reviewSkillPresent = yield* skillPresent(worktreeDir, loop.reviewSkill);
   const ctx: LoopPromptContext = {
     item,
     taskFile: loop.taskFile,
     completionSentinel: loop.sentinels.completion,
     blockedTag: loop.sentinels.blockedTag,
+    reviewCleanSentinel: loop.sentinels.reviewClean,
+    reviewFindingsSentinel: loop.sentinels.reviewFindings,
   };
+
+  // A machine-gate failure is carried across the amnesia boundary the same way
+  // review findings are: appended to the task file as a vertical slice with
+  // acceptance criteria, so the next iteration picks it up. Symmetric with how the
+  // reviewer carries its findings (ADR-0003).
+  const appendGateFixTask = Effect.fn("homestead/runner/gate-fix-task")(function* (reason: string, cmd: ReadonlyArray<string>) {
+    const fs = yield* FileSystem.FileSystem;
+    const taskPath = `${worktreeDir}/${loop.taskFile}`;
+    const block = `\n- [ ] Fix the failing machine gate — ${reason}\n  - [ ] \`${cmd.join(" ")}\` exits 0 (re-run it, diagnose every failure, and fix the code — not the check)\n`;
+    const prior = yield* fs.readFileString(taskPath).pipe(Effect.catchCause(() => Effect.succeed("")));
+    yield* fs
+      .writeFileString(taskPath, prior + block)
+      .pipe(Effect.catchCause(() => Console.log(`  ⚠ could not append gate-fix task to ${loop.taskFile} (continuing)`)));
+  });
 
   // One headless agent invocation. `--output-format stream-json --verbose` makes
   // claude emit a structured NDJSON event stream (captureAgent parses it: live
@@ -155,7 +178,15 @@ export const runLoop = Effect.fn("homestead/run-loop")(function* (
 
   yield* Console.log(`\n▸ homestead agent loop for #${item.number}: ${item.title}`);
 
-  let state: LoopState = { planned: false, iterations: 0, maxIterations: loop.maxIterations };
+  let state: LoopState = {
+    planned: false,
+    iterations: 0,
+    maxIterations: loop.maxIterations,
+    review: loop.review,
+    gate: loop.verifyCommand !== undefined,
+    maxReviewRounds: loop.maxReviewRounds,
+    reviewRounds: 0,
+  };
   let outcome: Outcome = { _tag: "Working" };
 
   for (;;) {
@@ -163,6 +194,34 @@ export const runLoop = Effect.fn("homestead/run-loop")(function* (
     if (action._tag === "Finish") {
       yield* finish(action.terminal);
       return;
+    }
+
+    // The machine gate (ADR-0003): not an agent invocation — run the verify command
+    // and map its exit code through the pure verdict function. A red gate is
+    // appended to the task file as a fix task so the next iteration repairs it.
+    if (action._tag === "RunGate") {
+      const cmd = loop.verifyCommand ?? [];
+      const [gbin, ...gargs] = cmd;
+      yield* Console.log(`\n▸ #${item.number} — machine gate: ${cmd.join(" ")}`);
+      const code = yield* runExit(gbin ?? "true", gargs, { cwd: worktreeDir }).pipe(
+        Effect.catchCause(() => Effect.succeed(1)),
+      );
+      outcome = gateVerdict(code, cmd);
+      if (outcome._tag === "GateRed") yield* appendGateFixTask(outcome.reason, cmd);
+      state = advance(state, action);
+      continue;
+    }
+
+    // The fresh-context review pass (ADR-0003): always invoked with resume forced
+    // empty (the VDD carve-out — the reviewer must not share history with the
+    // builder), labelled distinctly from a build iteration, and parsed by parseReview.
+    if (action._tag === "RunReview") {
+      yield* Console.log(`\n▸ #${item.number} — review round ${state.reviewRounds + 1}/${loop.maxReviewRounds} (fresh context)`);
+      const prompt = agent.loop?.reviewPrompt?.(ctx) ?? reviewPrompt(loop.reviewSkill, reviewSkillPresent, ctx);
+      const { result, sessionId } = yield* invoke(prompt, resumeArg(state, loop, true));
+      state = rememberSession(advance(state, action), sessionId);
+      outcome = parseReview(result, loop.sentinels);
+      continue;
     }
 
     const isPlan = action._tag === "RunPlan";

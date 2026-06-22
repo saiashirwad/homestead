@@ -90,6 +90,19 @@ export default defineConfig({
       // (amnesia, ADR-0001). true = resume the same claude session each iteration
       // so context carries forward — trades the clean-context quality floor for
       // continuity. Flip to A/B the two on real issues.
+
+      // Review-converge gate (ADR-0003), off by default. When `review` is true,
+      // homestead refuses to open a PR on the builder's say-so alone: after a builder
+      // `COMPLETE` it runs its own deterministic machine gate, then a fresh-context
+      // adversarial reviewer (the seeded homestead-review skill, always run with no
+      // --resume so it stays independent of the builder). Findings/gate failures are
+      // appended to TASKS.md as fix tasks and the loop rebuilds; a clean+green pass
+      // opens the PR; a non-converged review (cap reached) -> agent:blocked.
+      review: false, // master opt-in; false = builder COMPLETE opens the PR exactly as today
+      // verifyCommand: ["bun", "run", "check"], // the machine gate (e.g. typecheck+test). Unset = review-only, no gate.
+      // maxReviewRounds: 3, // convergence cap before agent:blocked (default 3)
+      // reviewSkill: "homestead-review", // override the reviewer skill name
+      // reviewPrompt: (ctx) => `...`, // override the review prompt (parity with planPrompt / iterationPrompt)
     },
   },
 

@@ -27,6 +27,7 @@
     "homestead": "bun ./src/cli.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
+    "check": "bun run typecheck && bun test",
     "release": "./scripts/release.sh"
   },
   "devDependencies": {

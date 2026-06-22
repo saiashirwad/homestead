@@ -31,11 +31,21 @@ export default defineConfig({
   // `claude -p` per iteration; --dangerously-skip-permissions lets it run gh/git
   // and edit files unattended (no interactive prompt exists to approve tools in
   // headless mode). Blast radius is the worktree + host bash; the PR review is the
-  // gate, a sandbox is the future mitigation. Loop knobs (maxIterations, sentinels,
-  // /homestead-plan + /homestead-implement skills) take their defaults.
+  // gate, a sandbox is the future mitigation.
   agent: {
     command: ["claude", "--dangerously-skip-permissions"],
     surface: "worktree", // nest each agent under homestead's workspace in herdr
+    // Dogfood the review-converge gate (ADR-0003): before a PR opens, homestead runs
+    // its own checks (the machine gate) and a fresh-context adversarial reviewer.
+    // So homestead's own issues are hardened by the feature it ships. maxIterations,
+    // sentinels, and the /homestead-plan + /homestead-implement + /homestead-review
+    // skills take their defaults.
+    loop: {
+      review: true, // adversarial fresh-context review + machine gate before the PR
+      verifyCommand: ["bun", "run", "check"], // the deterministic gate: typecheck then test
+      // maxReviewRounds defaults to 3 — a builder that can't satisfy the reviewer in
+      // 3 rounds is handed to a human (agent:blocked) rather than looping forever.
+    },
   },
 
   // `homestead listen` — poll for open issues labelled agent:ready and auto-work

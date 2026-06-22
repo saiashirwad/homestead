@@ -88,11 +88,16 @@ Do exactly one slice, then stop:
 
 Then end THIS iteration:
 
-- If every task and criterion is now checked, you MUST review the whole diff before
-  finishing — do not skip this: run \`/code-review\` and address what it surfaces. (If
+- If every task and criterion is now checked, do a cheap first-pass self-review of the
+  whole diff before finishing: run \`/code-review\` and address what it surfaces. (If
   that skill isn't available here, review the diff yourself for bugs and obvious
-  cleanups.) Then run the full test suite once. ONLY when the review is clean AND the
-  suite passes, emit the completion sentinel exactly: \`${loop.sentinels.completion}\`
+  cleanups.) Then run the full test suite once. ONLY when that pass is clean AND the
+  suite passes, emit the completion sentinel exactly: \`${loop.sentinels.completion}\`.
+  Note: this self-review is a courtesy first pass, NOT the authoritative gate — when
+  the project opts into review-converge (ADR-0003), homestead runs its own deterministic
+  machine gate and a fresh-context adversarial reviewer after your \`COMPLETE\`, and
+  only those decide whether the PR opens. Emit \`COMPLETE\` when you genuinely believe
+  the slice is done; don't pad the diff to pre-empt the reviewer.
 - If you hit a decision you cannot make on your own (ambiguous spec, missing credential,
   a destructive or irreversible choice), emit
   \`<${loop.sentinels.blockedTag}>your question here</${loop.sentinels.blockedTag}>\`
@@ -102,11 +107,54 @@ Then end THIS iteration:
 One slice per iteration — resist finishing the next task, even a tempting small one. The
 clean context next iteration is what keeps each slice sharp.`;
 
+const reviewBody = (loop: ResolvedLoop): string =>
+  `You are running homestead's **adversarial review pass** for a GitHub issue (URL given
+as the argument). You are a FRESH, HOSTILE reviewer with NO shared history with the
+builder — your job is to find the defects the author rationalised away, not to agree
+with them. You REVIEW; you do not implement fixes yourself.
+
+The work has already cleared a deterministic machine gate; you are the second gate
+before a PR opens. Steps:
+
+1. Read the issue (\`gh issue view <url>\`), then \`${loop.taskFile}\` (each task is a
+   **vertical slice** whose indented \`- [ ]\` lines are its **acceptance criteria**),
+   then the **full diff** of the work so far (\`git diff $(git merge-base HEAD origin/HEAD)...HEAD\`).
+   ${vocabularyNote}
+2. Run the project's own checks (typecheck + tests) to see the work behaving, not just
+   compiling.
+3. Hunt for real defects against the slice acceptance criteria — "clean" means
+   **satisfies the spec**, not merely "compiles". Look hardest for: placeholder or stub
+   logic, lazy or swallowed error handling, weak/incorrect logic, edges with no test,
+   and acceptance criteria ticked but not actually met.
+
+Then end the review with exactly ONE signal:
+
+- **Found real defects** → append them to \`${loop.taskFile}\` as new **vertical-slice
+  tasks with acceptance criteria**, in the SAME shape the plan pass writes:
+
+  ${taskFormat(loop)}
+
+  Do NOT commit \`${loop.taskFile}\` (homestead git-ignores it). Then emit the findings
+  signal exactly: \`${loop.sentinels.reviewFindings}\`. homestead will run another build
+  iteration to fix them.
+- **Diff is genuinely clean** (every criterion met, no real defect) → emit the clean
+  signal exactly: \`${loop.sentinels.reviewClean}\`. homestead will open the PR.
+- **A genuine human-only decision** (ambiguous spec, a call only the operator can make)
+  → emit \`<${loop.sentinels.blockedTag}>your question here</${loop.sentinels.blockedTag}>\`
+  and stop — do not guess.
+
+Be hostile but honest: invent no defects to look thorough (a clean diff is a valid,
+expected outcome), and never wave through real ones. Findings must be concrete and
+fixable, each tied to an acceptance criterion or an observed defect.`;
+
 const planDoc = (loop: ResolvedLoop, name: string): string =>
   frontmatter(name, "homestead plan pass: decompose an issue into a vertical-slice task list with acceptance criteria (plan only)", planBody(loop));
 
 const implementDoc = (loop: ResolvedLoop, name: string): string =>
   frontmatter(name, "homestead agent-loop iteration: implement the next vertical slice from the task list", implementBody(loop));
+
+const reviewDoc = (loop: ResolvedLoop, name: string): string =>
+  frontmatter(name, "homestead review pass: fresh-context adversarial review of the diff against the spec; append fix tasks or sign off clean", reviewBody(loop));
 
 const skillPath = (path: Path.Path, targetDir: string, name: string): string =>
   path.join(targetDir, ".claude", "skills", name, "SKILL.md");
@@ -133,6 +181,7 @@ export const writeSkills = Effect.fn("homestead/skills/write")(function* (target
   const skills: ReadonlyArray<readonly [string, string]> = [
     [loop.planSkill, planDoc(loop, loop.planSkill)],
     [loop.implementSkill, implementDoc(loop, loop.implementSkill)],
+    [loop.reviewSkill, reviewDoc(loop, loop.reviewSkill)],
   ];
 
   for (const [name, doc] of skills) {
@@ -154,19 +203,34 @@ export const writeSkills = Effect.fn("homestead/skills/write")(function* (target
 
 const inline = (header: string, body: string): string => `${header}\n\n${body}`;
 
+// Reconstruct a ResolvedLoop from the prompt context so the inline-fallback body
+// reads identically to the seeded skill (the runtime's resolved task file + sentinel
+// tokens are baked in). The cap/skill-name/config fields don't affect the body text,
+// so they take inert placeholders.
+const loopFromCtx = (skillName: string, ctx: LoopPromptContext): ResolvedLoop => ({
+  maxIterations: 0,
+  sentinels: {
+    completion: ctx.completionSentinel,
+    blockedTag: ctx.blockedTag,
+    reviewClean: ctx.reviewCleanSentinel,
+    reviewFindings: ctx.reviewFindingsSentinel,
+  },
+  planSkill: skillName,
+  implementSkill: skillName,
+  taskFile: ctx.taskFile,
+  resume: false,
+  review: false,
+  verifyCommand: undefined,
+  reviewSkill: skillName,
+  maxReviewRounds: 0,
+});
+
 export const planPrompt = (skillName: string, present: boolean, ctx: LoopPromptContext): string =>
   present
     ? `/${skillName} ${ctx.item.url}`
     : inline(
         `Plan GitHub issue ${ctx.item.url}. Write the task list to ${ctx.taskFile}.`,
-        planBody({
-          maxIterations: 0,
-          sentinels: { completion: ctx.completionSentinel, blockedTag: ctx.blockedTag },
-          planSkill: skillName,
-          implementSkill: skillName,
-          taskFile: ctx.taskFile,
-          resume: false,
-        }),
+        planBody(loopFromCtx(skillName, ctx)),
       );
 
 export const iterationPrompt = (skillName: string, present: boolean, ctx: LoopPromptContext): string =>
@@ -174,12 +238,13 @@ export const iterationPrompt = (skillName: string, present: boolean, ctx: LoopPr
     ? `/${skillName} ${ctx.item.url}`
     : inline(
         `Work the next task for GitHub issue ${ctx.item.url}. The task list is in ${ctx.taskFile}.`,
-        implementBody({
-          maxIterations: 0,
-          sentinels: { completion: ctx.completionSentinel, blockedTag: ctx.blockedTag },
-          planSkill: skillName,
-          implementSkill: skillName,
-          taskFile: ctx.taskFile,
-          resume: false,
-        }),
+        implementBody(loopFromCtx(skillName, ctx)),
+      );
+
+export const reviewPrompt = (skillName: string, present: boolean, ctx: LoopPromptContext): string =>
+  present
+    ? `/${skillName} ${ctx.item.url}`
+    : inline(
+        `Adversarially review the work on GitHub issue ${ctx.item.url}. The task list is in ${ctx.taskFile}.`,
+        reviewBody(loopFromCtx(skillName, ctx)),
       );
