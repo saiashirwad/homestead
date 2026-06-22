@@ -25,12 +25,16 @@ const commitAll = Effect.fn("githog/runner/commit-all")(function* (cwd: string, 
   yield* runExit("git", ["commit", "-m", message], { cwd }).pipe(Effect.catchCause(() => Effect.succeed(1)));
 });
 
-// Push the branch to origin (best-effort) so a PR can open / a blocked branch is
-// recoverable. Idempotent: re-pushing an up-to-date branch is a no-op.
+// Push the branch to origin so a PR can open / a blocked branch is recoverable.
+// Returns whether the push succeeded — a non-fast-forward rejection (e.g. a stale
+// origin/<branch> left by a prior run) must NOT be ignored, or we'd open a PR
+// against the wrong commit. Idempotent: re-pushing an up-to-date branch is a no-op.
 const pushBranch = Effect.fn("githog/runner/push")(function* (cwd: string, branch: string) {
-  yield* runExit("git", ["push", "-u", "origin", branch], { cwd }).pipe(
-    Effect.catchCause(() => Console.log(`  ⚠ git push of '${branch}' failed (continuing)`)),
+  const code = yield* runExit("git", ["push", "-u", "origin", branch], { cwd }).pipe(
+    Effect.catchCause(() => Effect.succeed(1)),
   );
+  if (code !== 0) yield* Console.log(`  ⚠ git push of '${branch}' failed (exit ${code})`);
+  return code === 0;
 });
 
 // Open a PR from the worktree's branch, linking the issue so a merge closes it.
@@ -84,8 +88,16 @@ export const runLoop = Effect.fn("githog/run-loop")(function* (
     captureStreaming(bin ?? "claude", [...baseArgs, "-p", prompt], { cwd: worktreeDir });
 
   const finish = Effect.fn("githog/runner/finish")(function* (terminal: Terminal) {
-    yield* pushBranch(worktreeDir, branch);
+    const pushed = yield* pushBranch(worktreeDir, branch);
     if (terminal._tag === "Complete") {
+      // A failed push means the remote doesn't have this work — opening a PR now
+      // would point at the wrong commit. Block instead so the failure is visible.
+      if (!pushed) {
+        const reason = `branch '${branch}' could not be pushed (stale remote branch?) — refusing to open a PR against the wrong commit`;
+        if (trackLabels) yield* markBlocked(wipLabel, blockedLabel, item.number, `🛑 githog: ${reason}`);
+        yield* Console.log(`\n⛔ #${item.number} blocked: ${reason}${trackLabels ? ` — moved to '${blockedLabel}'` : ""}`);
+        return;
+      }
       yield* openPr(worktreeDir, item, branch);
       if (trackLabels) yield* markReview(wipLabel, reviewLabel, item.number);
       yield* Console.log(`\n✅ #${item.number} complete — PR opened${trackLabels ? `, moved to '${reviewLabel}'` : ""}`);

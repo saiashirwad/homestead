@@ -99,5 +99,13 @@ export const killBranch = Effect.fn("githog/kill-branch")(function* (
     yield* Console.log(`  (branch '${branch}' already gone)`);
   }
 
+  // 4. delete the remote branch too. A leftover origin/<branch> from a prior run
+  // has unrelated history, so a re-run's `git push` is rejected non-fast-forward —
+  // and (until the runner blocks on that) a PR gets opened against the stale
+  // remote, missing the real work. Best-effort: no remote / already gone is fine.
+  yield* runExit("git", ["push", "origin", "--delete", branch], { cwd: primaryRoot }).pipe(
+    Effect.catchCause(() => Effect.succeed(1)),
+  );
+
   yield* Console.log(`  ✓ killed '${branch}'`);
 });
