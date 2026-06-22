@@ -12,7 +12,7 @@ against the actual source/CLI so nothing claimed stops being true.
 - [x] Deslop the config reference table: make each "What it controls" cell terse and factual, verify field names/defaults against the source
 - [x] Clean the "Issue tracking (opt-in)" subsection: cut hedging/flourish, keep the opt-in semantics and state-tracking facts accurate
 - [x] Deslop the "Commands" sections (`setup`, `implement-issues`): trim restated explanations, keep flags and behavior correct
-- [ ] Clean "The Ralph loop" section: tighten the numbered steps and stop/complete/blocked descriptions, verify against ADR-0001
+- [x] Clean "The Ralph loop" section: tighten the numbered steps and stop/complete/blocked descriptions, verify against ADR-0001
 - [ ] Deslop the "listen" section: trim narrative, keep the TUI mockup only if it earns its place, verify label-flow and defaults
 - [ ] Clean the "kill" and "Develop" sections: terse final pass, verify commands match package scripts
 - [ ] Final read-through for consistency (heading style, voice, residual em-dashes) and confirm no factual claim was lost
