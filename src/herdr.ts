@@ -2,12 +2,6 @@ import { Console, Effect, Schema } from "effect";
 import { capture } from "./process.ts";
 import type { AgentConfig, WorkItem } from "./types.ts";
 
-// claude's idle-footer hint — present once the TUI is ready for input. The two
-// wordings cover the permission-mode footer and the default shortcuts footer.
-const DEFAULT_READY_MARKER = "to cycle|for shortcuts";
-const DEFAULT_READY_TIMEOUT_MS = 90000;
-const DEFAULT_COMMAND = ["claude"] as const;
-
 // `herdr worktree open` / `workspace create` / `tab create` all nest the new
 // pane at result.root_pane.pane_id.
 const SurfaceCreated = Schema.Struct({
@@ -43,40 +37,26 @@ const createSurface = Effect.fn("githog/create-surface")(function* (
   return created.result.root_pane.pane_id;
 });
 
-// For one work item: open a herdr surface at the worktree, launch the agent
-// command, wait for it to be READY, then type the initial prompt + a real Enter.
-// (A slash command needs the literal text typed and then a separate Enter, which
-// is why this is send-text + send-keys, not `pane run`.)
+// For one work item: open a herdr surface at the worktree and run the githog
+// Ralph loop INSIDE that pane (ADR-0001). The pane is a window, not a driver —
+// the loop drives the agent by headless re-invocation, we just give it somewhere
+// watchable to scroll. `pane run` re-invokes THIS githog (argv[0] = the bun
+// runtime, argv[1] = the resolved cli entry) as `githog loop <issue-url>`, which
+// loads the worktree's config and runs the loop. Returns immediately; the loop
+// then lives independently in the pane.
 export const launchAgent = Effect.fn("githog/launch-agent")(function* (
   item: WorkItem,
   dir: string,
   agent: AgentConfig,
 ) {
-  const command = agent.command ?? DEFAULT_COMMAND;
-  const [agentCmd, ...agentArgs] = command;
-  const readyMarker = agent.readyMarker ?? DEFAULT_READY_MARKER;
-  const readyTimeoutMs = agent.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
   const surface = agent.surface ?? "worktree";
 
-  yield* Console.log(`\n▸ Launching agent for issue #${item.number} in ${dir}`);
+  yield* Console.log(`\n▸ Launching Ralph loop for issue #${item.number} in ${dir}`);
   const pane = yield* createSurface(surface, dir, `issue-${item.number}`);
 
-  yield* herdr("pane", "run", pane, agentCmd ?? "claude", ...agentArgs);
-  yield* herdr(
-    "wait",
-    "output",
-    pane,
-    "--match",
-    readyMarker,
-    "--regex",
-    "--timeout",
-    String(readyTimeoutMs),
-  );
+  const runtime = process.argv[0] ?? "bun";
+  const entry = process.argv[1] ?? "githog";
+  yield* herdr("pane", "run", pane, runtime, entry, "loop", item.url);
 
-  const prompt = agent.prompt(item);
-  yield* herdr("pane", "send-text", pane, prompt);
-  yield* Effect.sleep("400 millis");
-  yield* herdr("pane", "send-keys", pane, "Enter");
-
-  yield* Console.log(`  ✓ #${item.number}: ${prompt}  (herdr pane ${pane})`);
+  yield* Console.log(`  ✓ #${item.number}: githog loop ${item.url}  (herdr pane ${pane})`);
 });

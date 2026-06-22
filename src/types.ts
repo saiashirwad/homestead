@@ -76,15 +76,48 @@ export interface ListenConfig {
   readonly maxConcurrent?: number | undefined; // max active agents, counted by agent:wip (default 3)
 }
 
+// Context handed to a `loop.planPrompt` / `loop.iterationPrompt` override so a
+// repo can build its own prompt text while still seeing the runtime's resolved
+// task-file name and sentinel tokens.
+export interface LoopPromptContext {
+  readonly item: WorkItem;
+  readonly taskFile: string;
+  readonly completionSentinel: string;
+  readonly blockedTag: string;
+}
+
+// The Ralph loop's knobs (per ADR-0001). githog drives the agent headlessly: a
+// one-shot plan pass decomposes the issue into `taskFile`, then iterations pick
+// the next task until the agent emits `completionSentinel` (→ PR + agent:review)
+// or hits `maxIterations` / emits a `<blockedTag>` sentinel (→ agent:blocked).
+export interface LoopConfig {
+  readonly maxIterations?: number | undefined; // backstop cap on iterations (default 25)
+  readonly completionSentinel?: string | undefined; // default "<promise>COMPLETE</promise>"
+  readonly blockedTag?: string | undefined; // <tag>reason</tag> the agent emits (default "blocked")
+  readonly planSkill?: string | undefined; // skill invoked for the plan pass (default "githog-plan")
+  readonly implementSkill?: string | undefined; // skill invoked per iteration (default "githog-implement")
+  readonly taskFile?: string | undefined; // durable cross-iteration task list (default "TASKS.md")
+  readonly seedSkills?: boolean | undefined; // write the bundled skills into the worktree at provision (default true)
+  // Override the built-in prompt text. When set, used verbatim instead of the
+  // `/<skill>`-or-fallback prompt the runner builds.
+  readonly planPrompt?: ((ctx: LoopPromptContext) => string) | undefined;
+  readonly iterationPrompt?: ((ctx: LoopPromptContext) => string) | undefined;
+}
+
 export interface AgentConfig {
   readonly command?: ReadonlyArray<string> | undefined; // default ["claude"]
-  readonly readyMarker?: string | undefined; // regex matched in pane output before sending
-  readonly readyTimeoutMs?: number | undefined; // default 90000
   // herdr surface for each agent (default "worktree"): "worktree" nests the agent
   // under the repo's workspace, "workspace" makes a flat top-level one, "tab" adds
   // a tab to the parent workspace.
   readonly surface?: "worktree" | "workspace" | "tab" | undefined;
-  readonly prompt: (item: WorkItem) => string; // initial text typed once the agent is ready
+  // The Ralph loop config (ADR-0001). Omit for sensible defaults.
+  readonly loop?: LoopConfig | undefined;
+  // @deprecated Superseded by the Ralph loop (ADR-0001). The single-shot
+  // interactive "launch claude, wait for ready, type one prompt" path is gone;
+  // these fields are accepted for back-compat but no longer used.
+  readonly readyMarker?: string | undefined;
+  readonly readyTimeoutMs?: number | undefined;
+  readonly prompt?: ((item: WorkItem) => string) | undefined;
 }
 
 // Context handed to a custom `issues.comment` function when an agent starts.
@@ -106,6 +139,11 @@ export interface IssuesConfig {
   // post a comment on start (true = default message; a function = custom). A
   // matching "stopped" comment is posted on kill.
   readonly comment?: boolean | ((ctx: TrackingContext) => string) | undefined;
+  // Terminal states the Ralph loop swaps `label` ("agent:wip") into when it ends:
+  // a completed loop opens a PR and moves to `reviewLabel`, a stuck/blocked loop
+  // pushes its partial branch and moves to `blockedLabel`. Both free a listen slot.
+  readonly reviewLabel?: string | undefined; // default "agent:review"
+  readonly blockedLabel?: string | undefined; // default "agent:blocked"
 }
 
 // The single per-project control surface, authored as githog.config.ts via

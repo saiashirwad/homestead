@@ -47,6 +47,37 @@ export const claimReady = Effect.fn("githog/claim-ready")(function* (
   yield* gh("gh issue edit --remove-label", ["issue", "edit", ref, "--remove-label", readyLabel]);
 });
 
+// --- loop terminal handoffs: swap the wip label to a terminal state ----------
+// Both move the issue out of `agent:wip` (freeing a listen slot, which counts only
+// wip) and into a terminal label. Best-effort, like every other tracker touch.
+const swapLabel = Effect.fn("githog/swap-label")(function* (fromLabel: string, toLabel: string, number: number) {
+  const ref = String(number);
+  yield* gh("gh label create", ["label", "create", toLabel, "--color", LABEL_COLOR, "--force"]);
+  yield* gh("gh issue edit --add-label", ["issue", "edit", ref, "--add-label", toLabel]);
+  yield* gh("gh issue edit --remove-label", ["issue", "edit", ref, "--remove-label", fromLabel]);
+});
+
+// Loop completed: PR is open, move wip -> review for human review/merge.
+export const markReview = Effect.fn("githog/mark-review")(function* (
+  wipLabel: string,
+  reviewLabel: string,
+  number: number,
+) {
+  yield* swapLabel(wipLabel, reviewLabel, number);
+});
+
+// Loop stopped without completing: move wip -> blocked and post the reason / last
+// output so a human can find and triage it.
+export const markBlocked = Effect.fn("githog/mark-blocked")(function* (
+  wipLabel: string,
+  blockedLabel: string,
+  number: number,
+  reason: string,
+) {
+  yield* swapLabel(wipLabel, blockedLabel, number);
+  yield* gh("gh issue comment", ["issue", "comment", String(number), "--body", reason]);
+});
+
 // --- start: apply the configured signals, then record what we did -----------
 
 export const markStarted = Effect.fn("githog/mark-started")(function* (

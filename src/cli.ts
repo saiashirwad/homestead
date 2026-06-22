@@ -7,6 +7,8 @@ import { currentRepoSlug, parseIssueArg, resolveIssue, type IssueRef } from "./i
 import { consoleReporter } from "./dashboard/reporter.ts";
 import { runListenTui } from "./dashboard/run.tsx";
 import { listen } from "./listen.ts";
+import { capture } from "./process.ts";
+import { runLoop } from "./runner.ts";
 import { killBranch } from "./teardown.ts";
 import { markStarted } from "./tracking.ts";
 import { resolveRepo, setupWorktree } from "./worktree.ts";
@@ -132,6 +134,23 @@ const listenCommand = Effect.fn("githog/cli/listen")(function* () {
   yield* listen(config, consoleReporter);
 });
 
+// --- `githog loop <issue>` — drive the Ralph loop for ONE issue (ADR-0001) ----
+// The loop runner: launchAgent runs this inside a herdr pane so iterations are
+// watchable. cwd is the issue's worktree, so config + branch resolve from here.
+
+const loopCommand = Effect.fn("githog/cli/loop")(function* () {
+  const ref = issueRefs()[0];
+  if (ref === undefined) return yield* fail("usage: githog loop <issue>");
+  const cwd = process.cwd();
+  const config = yield* loadConfig(cwd);
+  if (config.agent === undefined) {
+    return yield* fail("[githog] config has no `agent` block — loop needs one to drive claude.");
+  }
+  const item = yield* resolveIssue(ref);
+  const branch = yield* capture("git", ["rev-parse", "--abbrev-ref", "HEAD"], cwd);
+  yield* runLoop(item, cwd, branch, config.agent, config.issues ?? {});
+});
+
 // --- `githog kill <branch>...` — tear a worktree + branch + herdr surface down -
 
 const killCommand = Effect.fn("githog/cli/kill")(function* () {
@@ -155,6 +174,7 @@ usage:
   githog implement-issues <issue>...     (issue = number or GitHub issue URL)
   githog <issue>...                      (bare form, implies implement-issues)
   githog listen                          (poll for 'agent:ready' issues, auto-implement)
+  githog loop <issue>                    (drive the Ralph loop for one issue — run by githog inside a pane)
   githog kill <branch-or-issue>...       (remove worktree + branch + herdr surface)
                                          (issue commands run inside a herdr pane)`;
 
@@ -172,9 +192,11 @@ if (process.argv[2] === "listen" && process.stdout.isTTY && !hasFlag("plain")) {
         ? listenCommand()
         : process.argv[2] === "kill"
           ? killCommand()
-          : refs.length > 0
-            ? implementIssuesCommand(refs)
-            : fail(USAGE);
+          : process.argv[2] === "loop"
+            ? loopCommand()
+            : refs.length > 0
+              ? implementIssuesCommand(refs)
+              : fail(USAGE);
 
   program.pipe(
     Effect.catchTags({

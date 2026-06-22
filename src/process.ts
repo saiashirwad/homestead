@@ -79,6 +79,36 @@ export const run = Effect.fn("githog/run")(function* (
   return code;
 });
 
+// Run a subprocess, streaming each output line live to our stdout (so it scrolls
+// in the herdr pane the loop runs in) AND accumulating the full output, returned
+// alongside the exit code. The Ralph loop needs claude -p's output BOTH watchable
+// and parseable for sentinels — `capture` hides it, `runExit` discards it.
+export const captureStreaming = Effect.fn("githog/capture-streaming")(function* (
+  command: string,
+  args: ReadonlyArray<string>,
+  options?: RunOptions,
+) {
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+  yield* Console.log(`  $ ${command} ${args.join(" ")}`);
+
+  return yield* Effect.scoped(
+    Effect.gen(function* () {
+      const handle = yield* spawner.spawn(
+        ChildProcess.make(command, args, { ...makeOptions(options), stdout: "pipe", stderr: "pipe" }),
+      );
+      const lines: Array<string> = [];
+      const drain = Stream.runForEach(Stream.splitLines(Stream.decodeText(handle.all)), (line) =>
+        Effect.gen(function* () {
+          lines.push(line);
+          yield* Console.log(line);
+        }),
+      );
+      const [, code] = yield* Effect.all([drain, handle.exitCode], { concurrency: "unbounded" });
+      return { code: Number(code), output: lines.join("\n") };
+    }),
+  ).pipe(Effect.orDie);
+});
+
 // Run a subprocess and capture its trimmed stdout (for git / gh / herdr plumbing).
 export const capture = Effect.fn("githog/capture")(function* (
   command: string,

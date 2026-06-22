@@ -57,20 +57,36 @@ export default defineConfig({
     { label: "db:seed", run: ["bun", "run", "db:seed"], injectEnv: ["DATABASE_URL"], fatal: false },
   ],
 
-  // implement-issues: branch == issue number, send `/implement <url>` to the agent.
-  // The label/assign/comment fields are opt-in issue tracking: githog adds them
-  // when an agent starts and removes them on `githog kill`, so the issue tracker
-  // shows what an agent is actively working. Omit them to never touch issues.
+  // branch == issue number. The label/assign/comment fields are opt-in issue
+  // tracking: githog adds them when a loop starts and removes them on `githog
+  // kill`. `agent:wip` is also the listen concurrency gauge; the Ralph loop swaps
+  // it to reviewLabel (completed, PR open) or blockedLabel (stuck) when it ends —
+  // both free a listen slot. Omit label/assign/comment to never touch issues.
   issues: {
     branch: (item) => String(item.number),
     label: "agent:wip", // added on start (auto-created), removed on kill
     assign: true, // assign the gh user (@me) on start, unassign on kill
     comment: true, // post a 🤖 start comment + 🛑 stop comment (or a function for custom text)
+    reviewLabel: "agent:review", // loop completed: PR opened, awaiting human (default)
+    blockedLabel: "agent:blocked", // loop stuck/blocked: needs a human (default)
   },
+
+  // The agent runs as a Ralph loop (ADR-0001): githog runs a one-shot plan pass
+  // that decomposes the issue into TASKS.md, then re-invokes the agent headlessly
+  // (`claude -p`) with a clean context each iteration until it emits the
+  // completion sentinel (→ PR + agent:review) or hits the cap / emits `<blocked>`
+  // (→ agent:blocked). The loop runs inside the herdr pane so you can watch it.
   agent: {
+    // Add permission flags here for unattended runs, e.g.
+    // ["claude", "--dangerously-skip-permissions"].
     command: ["claude"],
     surface: "worktree", // nest each agent under the repo's workspace in herdr
-    prompt: (item) => `/implement ${item.url}`,
+    loop: {
+      maxIterations: 25, // backstop cap before the loop gives up -> agent:blocked
+      // completionSentinel / blockedTag / planSkill / implementSkill / taskFile
+      // all have sensible defaults; override only if you need to. The
+      // githog-plan / githog-implement skills are seeded into each worktree.
+    },
   },
 
   // `githog listen` — poll the repo and auto-implement any open issue labelled
