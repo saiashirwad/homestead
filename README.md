@@ -80,18 +80,18 @@ export default defineConfig({
 
 | Field | What it controls |
 | --- | --- |
-| `ports` | env keys made unique per worktree by scanning every sibling worktree's `.env` and taking the lowest free value ≥ `base`. |
-| `env.source` / `env.fallback` | which `.env` body to copy from the primary checkout (default `.env`, falling back to `.env.example`). |
+| `ports` | env keys made unique per worktree: the lowest free value ≥ `base` across sibling worktrees' `.env` files. |
+| `env.source` / `env.fallback` | which `.env` body to copy from the primary checkout (default `.env`, then `.env.example`). |
 | `env.derive` | function returning per-worktree key overrides (e.g. a DB name keyed off the branch `slug`). |
-| `services` | TCP dependencies probed before setup; if unreachable, `start` is run and githog polls until it's up. |
-| `setup` | ordered commands. Tokens `{{slug}}`, `{{branch}}`, `{{targetDir}}`, `{{env:KEY}}` are substituted; `injectEnv` puts computed-env values in the child's environment (beating any baked-in `--env-file`); `fatal: false` warns-and-continues. |
-| `agent` | `command` (default `["claude"]`), `surface` (`"worktree"` nests under the repo, `"workspace"`, or `"tab"`), and the `loop` block. |
-| `agent.loop` | the Ralph loop knobs: `maxIterations` (cap, default 25), `completionSentinel`/`blockedTag` (default `<promise>COMPLETE</promise>` / `blocked`), `planSkill`/`implementSkill` (default `githog-plan`/`githog-implement`), `taskFile` (default `TASKS.md`), `seedSkills` (default true), and `planPrompt`/`iterationPrompt` overrides. |
+| `services` | TCP dependencies probed before setup; if unreachable, `start` runs and githog polls until it's up. |
+| `setup` | ordered commands. Tokens `{{slug}}`, `{{branch}}`, `{{targetDir}}`, `{{env:KEY}}` are substituted; `injectEnv` sets computed-env values in the child's environment; `fatal: false` warns and continues on a non-zero exit. |
+| `agent` | `command` (default `["claude"]`), `surface` (`"worktree"` (default), `"workspace"`, or `"tab"`), and the `loop` block. |
+| `agent.loop` | Ralph loop knobs: `maxIterations` (default 25), `completionSentinel`/`blockedTag` (default `<promise>COMPLETE</promise>` / `blocked`), `planSkill`/`implementSkill` (default `githog-plan`/`githog-implement`), `taskFile` (default `TASKS.md`), `seedSkills` (default true), and `planPrompt`/`iterationPrompt` overrides. |
 | `worktreeDir` | where new worktrees land (default `~/worktrees/<repo>/<slug>`). |
 | `issues.branch` | branch name per issue (default the issue number). |
-| `issues.label` / `issues.assign` / `issues.comment` | **opt-in** issue tracking — see below. |
+| `issues.label` / `issues.assign` / `issues.comment` | opt-in issue tracking (see below). |
 | `issues.reviewLabel` / `issues.blockedLabel` | terminal labels the loop swaps `agent:wip` into (default `agent:review` / `agent:blocked`); both free a `listen` slot. |
-| `afterSetup` | an Effect escape hatch for arbitrary provisioning, with the full Bun platform (`FileSystem`, `Path`, subprocess) in scope. |
+| `afterSetup` | Effect escape hatch for arbitrary provisioning, with the Bun platform (`FileSystem`, `Path`, subprocess) in scope. |
 
 ### Issue tracking (opt-in)
 
