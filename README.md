@@ -1,8 +1,8 @@
 # githog
 
-**Config-driven git-worktree + agent provisioning.** Built on [Effect](https://effect.website) (v4) and [Bun](https://bun.sh).
+Config-driven git-worktree and agent provisioning, on [Effect](https://effect.website) (v4) and [Bun](https://bun.sh).
 
-githog gives every git worktree its own isolated dev environment — its own ports, its own database, its own `.env` — and can fan a batch of GitHub issues out into parallel coding agents, each in its own worktree. One small `githog.config.ts` per project describes how to provision a worktree; githog does the rest.
+githog gives each git worktree an isolated dev environment: its own ports, database, and `.env`. It can also fan a batch of GitHub issues out into parallel coding agents, one worktree per issue. A `githog.config.ts` at your repo root describes how to provision a worktree.
 
 ```bash
 githog setup --create my-feature        # isolate a new worktree (ports, .env, services, setup)
