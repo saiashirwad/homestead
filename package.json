@@ -1,13 +1,26 @@
 {
   "name": "githog",
+  "version": "0.1.0",
+  "description": "Give every git worktree its own isolated dev environment — ports, database, .env — and fan GitHub issues out into parallel coding agents, one worktree each.",
   "module": "index.ts",
   "type": "module",
-  "private": true,
   "bin": {
-    "githog": "./src/cli.ts"
+    "githog": "src/cli.ts"
   },
   "exports": {
     ".": "./index.ts"
+  },
+  "files": [
+    "index.ts",
+    "src",
+    "githog.config.example.ts",
+    "README.md"
+  ],
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "prepare": "./scripts/prepare-effect.sh",
