@@ -95,7 +95,7 @@ export default defineConfig({
 
 ### Issue tracking (opt-in)
 
-So you can see at a glance which issues an agent is on, githog can mark the GitHub issue when an agent **starts** and reverse it on `kill`. All three are opt-in — omit them and githog never touches your tracker.
+githog can mark a GitHub issue when an agent starts and reverse it on `kill`. All three are opt-in; omit them and githog never touches your tracker.
 
 ```ts
 issues: {
@@ -106,9 +106,9 @@ issues: {
 }
 ```
 
-githog records what it applied (per repo+branch, under `~/.githog/state/`) so `kill` reverses *exactly* what githog set — nothing else, even with custom branch names. Every gh call is best-effort: a failure warns and continues, it never aborts provisioning or teardown. "Done" is still signaled by your PR/merge — githog only knows *start* (`implement-issues`) and *stop* (`kill`).
+githog records what it applied per repo+branch under `~/.githog/state/`, so `kill` reverses only what githog set, even with custom branch names. Every gh call is best-effort: a failure warns and continues rather than aborting provisioning or teardown. githog tracks start (`implement-issues`) and stop (`kill`); "done" is signaled by your PR or merge.
 
-A config can also be a plain `export default { ... }` (no `githog` import) when the package isn't resolvable from the repo — handy in projects on a different package manager.
+A config can also be a plain `export default { ... }` (no `githog` import) for projects where the package isn't resolvable from the repo, such as a different package manager.
 
 ## Commands
 
