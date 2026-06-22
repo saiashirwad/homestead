@@ -154,26 +154,26 @@ The prompt logic ships as editable Claude skills (`githog-plan`, `githog-impleme
 
 ### `githog listen`
 
-Watch the repo and auto-implement issues as they're queued. Run it in a long-lived herdr pane.
+Poll the repo and auto-implement issues as they're labeled. Run it in a long-lived herdr pane.
 
 ```bash
 githog listen
 ```
 
-Label an issue **`agent:ready`** and githog picks it up: it claims the issue (swaps the label to `agent:wip` so it's never grabbed twice), then runs the same flow as `implement-issues` — provision a worktree and start the Ralph loop. The loop drains the issue to a terminal state on its own; the label *is* the queue:
+Label an issue `agent:ready` and githog claims it (swapping the label to `agent:wip` so it isn't picked up twice), then runs the same flow as `implement-issues`: provision a worktree and start the Ralph loop. The label tracks the issue's state:
 
 ```
 agent:ready ──(githog claims)──► agent:wip ──(loop completes)──► agent:review (PR open)
                                           └──(cap / <blocked>)──► agent:blocked
 ```
 
-It polls every `intervalSeconds` (default 30), never spawns more than `maxConcurrent` loops (default 3, gauged by counting open `agent:wip` issues — both `agent:review` and `agent:blocked` free a slot), and skips any issue whose branch already exists. A failure on one issue — or one poll — logs and continues; the daemon doesn't die. Fill a backlog of `agent:ready` issues and let it run overnight; come back to a queue of PRs to review.
+It polls every `intervalSeconds` (default 30) and runs at most `maxConcurrent` loops (default 3, counted from open `agent:wip` issues, so `agent:review` and `agent:blocked` both free a slot). It skips any issue whose branch already exists. A failure on one issue or poll is logged; the daemon keeps running.
 
 ```ts
 listen: { label: "agent:ready", intervalSeconds: 30, maxConcurrent: 3 }
 ```
 
-On an interactive terminal, `listen` renders a **live dashboard** ([OpenTUI](https://opentui.com)) with three columns — **queued** / **in progress** / **done** — plus a detail pane showing the current issue's provisioning step and captured setup output. Newly-pulled-in issues flash `NEW`; finished ones (their `agent:wip` label gone) move to **done**. Press `q` to quit (agents keep running in their herdr panes). Piped/non-TTY, or with `--plain`, it falls back to line logs.
+On an interactive terminal, `listen` renders a dashboard ([OpenTUI](https://opentui.com)) with three columns — queued / in progress / done — and a detail pane showing the current issue's provisioning step and setup output. Newly-pulled-in issues flash `NEW`; finished ones (their `agent:wip` label gone) move to done. Press `q` to quit; agents keep running in their herdr panes. Piped, non-TTY, or with `--plain`, it falls back to line logs.
 
 ```
 ┌ githog listen ──── orderservice · trigger agent:ready · every 30s · 2/3 active ┐
@@ -187,7 +187,7 @@ On an interactive terminal, `listen` renders a **live dashboard** ([OpenTUI](htt
 └ q quit · agents run in their own herdr worktree panes ───────────────────────  ┘
 ```
 
-Detection is **polling** (a local CLI can't receive GitHub webhooks), which needs no infra and works behind NAT. Since claiming is a label swap, there's a tiny race window if you run `listen` on two machines against one repo — fine for a single dev box.
+Detection is polling, since a local CLI can't receive GitHub webhooks. Because claiming is a label swap, running `listen` on two machines against one repo leaves a small race window; it's meant for a single dev box.
 
 ### `githog kill`
 
