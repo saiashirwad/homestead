@@ -8,7 +8,7 @@ import type { GithogConfig, WorkItem } from "./types.ts";
 
 const DEFAULT_READY_LABEL = "agent:ready";
 const DEFAULT_WIP_LABEL = "agent:wip";
-const DEFAULT_INTERVAL_SECONDS = 30;
+const DEFAULT_INTERVAL_SECONDS = 10;
 const DEFAULT_MAX_CONCURRENT = 3;
 
 // gh issue list rows are decoded, never asserted.

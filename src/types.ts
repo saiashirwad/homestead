@@ -72,7 +72,7 @@ export interface EnvConfig {
 // from `label` to the issues.label ("agent:wip") so it isn't picked up twice.
 export interface ListenConfig {
   readonly label?: string | undefined; // trigger label (default "agent:ready")
-  readonly intervalSeconds?: number | undefined; // poll cadence (default 30)
+  readonly intervalSeconds?: number | undefined; // poll cadence (default 10)
   readonly maxConcurrent?: number | undefined; // max active agents, counted by agent:wip (default 3)
 }
 
