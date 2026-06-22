@@ -1,4 +1,4 @@
-import { Console, Effect } from "effect";
+import { Console, Effect, FileSystem } from "effect";
 import {
   advance,
   decide,
@@ -123,5 +123,18 @@ export const runLoop = Effect.fn("githog/run-loop")(function* (
     if (isPlan) yield* commitAll(worktreeDir, `githog: plan #${item.number}`);
     state = advance(state, action);
     outcome = parseOutcome(output, loop.sentinels);
+    // Guard: a plan pass that emitted no sentinel but produced no task list has
+    // nothing to iterate on (denied tool, agent slip). Block instead of burning
+    // the whole iteration cap on a missing plan.
+    if (isPlan && outcome._tag === "Working") {
+      const fs = yield* FileSystem.FileSystem;
+      const taskPath = `${worktreeDir}/${loop.taskFile}`;
+      if (!(yield* fs.exists(taskPath).pipe(Effect.catchCause(() => Effect.succeed(false))))) {
+        outcome = {
+          _tag: "Blocked",
+          reason: `plan pass produced no ${loop.taskFile} — nothing to iterate on (check the agent could read the issue)`,
+        };
+      }
+    }
   }
 });
