@@ -8,7 +8,7 @@ import {
   type Outcome,
   type Terminal,
 } from "./loop.ts";
-import { captureStreaming, runExit } from "./process.ts";
+import { capture, captureStreaming, runExit } from "./process.ts";
 import { iterationPrompt, planPrompt, skillPresent } from "./skills.ts";
 import { markBlocked, markReview } from "./tracking.ts";
 import type { AgentConfig, IssuesConfig, LoopPromptContext, WorkItem } from "./types.ts";
@@ -27,6 +27,45 @@ const pushBranch = Effect.fn("githog/runner/push")(function* (cwd: string, branc
   );
   if (code !== 0) yield* Console.log(`  ⚠ git push of '${branch}' failed (exit ${code})`);
   return code === 0;
+});
+
+// Collapse the loop's per-iteration commits into ONE before the PR opens. The loop
+// commits each task as it goes (recoverability + progress), but that yields a PR
+// with a commit per task — far too many for review. We squash against the branch
+// point: `git reset --soft <base>` re-stages every change since the fork as one
+// commit. The original task subjects go into the commit body so nothing is lost.
+// Best-effort: if the base can't be resolved or there's ≤1 commit, leave history
+// as-is rather than risk mangling it.
+const squashToOne = Effect.fn("githog/runner/squash")(function* (cwd: string, item: WorkItem, branch: string) {
+  // The branch's fork point from the repo's default branch (what the PR targets).
+  const defaultRef = yield* capture("git", ["rev-parse", "--abbrev-ref", "origin/HEAD"], cwd).pipe(
+    Effect.catchCause(() => Effect.succeed("")),
+  );
+  const baseRef = defaultRef === "" ? "main" : defaultRef;
+  const base = yield* capture("git", ["merge-base", "HEAD", baseRef], cwd).pipe(
+    Effect.catchCause(() => Effect.succeed("")),
+  );
+  if (base === "") {
+    yield* Console.log(`  ⚠ couldn't resolve a base to squash against — leaving history as-is`);
+    return;
+  }
+  const count = yield* capture("git", ["rev-list", "--count", `${base}..HEAD`], cwd).pipe(
+    Effect.catchCause(() => Effect.succeed("0")),
+  );
+  if (Number(count) <= 1) return; // already one (or no) commit — nothing to squash
+
+  const subjects = yield* capture("git", ["log", "--format=%s", "--reverse", `${base}..HEAD`], cwd).pipe(
+    Effect.catchCause(() => Effect.succeed("")),
+  );
+  const body = `Closes #${item.number}\n\n${subjects
+    .split("\n")
+    .filter((s) => s.trim() !== "")
+    .map((s) => `- ${s}`)
+    .join("\n")}\n\n🤖 Squashed from ${count} loop commits by githog.`;
+
+  yield* runExit("git", ["reset", "--soft", base], { cwd });
+  yield* runExit("git", ["commit", "-m", item.title, "-m", body], { cwd });
+  yield* Console.log(`  ✓ squashed ${count} commits into one for the PR`);
 });
 
 // Open a PR from the worktree's branch, linking the issue so a merge closes it.
@@ -80,8 +119,11 @@ export const runLoop = Effect.fn("githog/run-loop")(function* (
     captureStreaming(bin ?? "claude", [...baseArgs, "-p", prompt], { cwd: worktreeDir });
 
   const finish = Effect.fn("githog/runner/finish")(function* (terminal: Terminal) {
-    const pushed = yield* pushBranch(worktreeDir, branch);
     if (terminal._tag === "Complete") {
+      // Squash the per-iteration commits into one BEFORE pushing, so the PR shows a
+      // single clean commit rather than one per task.
+      yield* squashToOne(worktreeDir, item, branch);
+      const pushed = yield* pushBranch(worktreeDir, branch);
       // A failed push means the remote doesn't have this work — opening a PR now
       // would point at the wrong commit. Block instead so the failure is visible.
       if (!pushed) {
@@ -94,6 +136,8 @@ export const runLoop = Effect.fn("githog/run-loop")(function* (
       if (trackLabels) yield* markReview(wipLabel, reviewLabel, item.number);
       yield* Console.log(`\n✅ #${item.number} complete — PR opened${trackLabels ? `, moved to '${reviewLabel}'` : ""}`);
     } else {
+      // Blocked: push the partial branch AS-IS (granular history aids debugging) — no squash.
+      yield* pushBranch(worktreeDir, branch);
       const comment = `🛑 githog: agent blocked on \`${branch}\` — ${terminal.reason}`;
       if (trackLabels) yield* markBlocked(wipLabel, blockedLabel, item.number, comment);
       yield* Console.log(`\n⛔ #${item.number} blocked: ${terminal.reason}${trackLabels ? ` — moved to '${blockedLabel}'` : ""}`);
