@@ -191,20 +191,20 @@ Detection is polling, since a local CLI can't receive GitHub webhooks. Because c
 
 ### `githog kill`
 
-The inverse — tear a worktree down completely.
+Tear a worktree down: close its herdr workspace, remove the git worktree, delete the branch.
 
 ```bash
 githog kill 33
 githog kill my-feature other-branch
 ```
 
-Takes branch names (a number or issue URL maps to its branch under the default scheme). It closes the herdr worktree workspace, removes the git worktree, and deletes the branch — each step best-effort and idempotent, so re-running or killing a partially-gone worktree is safe.
+Takes branch names (a number or issue URL maps to its branch under the default scheme). Each step is best-effort and idempotent, so re-running or killing a partially-gone worktree is safe.
 
 ## Develop
 
 ```bash
 bun run typecheck   # tsc --noEmit
-bun test            # pure-helper unit tests
+bun test            # unit tests
 ```
 
 Built on Effect 4 (`effect@beta`) and `@effect/platform-bun`. Subprocess work uses `effect/unstable/process`; the CLI runs on `BunRuntime`/`BunServices`.
