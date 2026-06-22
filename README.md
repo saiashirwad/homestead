@@ -124,7 +124,7 @@ githog setup --create my-feature --no-setup   # skip the config's setup steps (e
 githog setup --create my-feature --dry-run    # print the plan, change nothing
 ```
 
-Re-running on an already-isolated worktree is idempotent — it reuses the existing ports.
+Re-running on an already-isolated worktree reuses its existing ports.
 
 ### `githog implement-issues`
 
@@ -136,9 +136,9 @@ githog 21                                  # bare form (no subcommand) implies i
 githog https://github.com/<you>/myapp/issues/21
 ```
 
-An issue can be a number or a full GitHub issue URL. A URL is a convenience over the number — it must point at the repo you're running in (the worktree is branched from the local clone here; githog does no cross-repo lookup or cloning), and a URL for a different repo is rejected with a clear message.
+An issue is a number or a full GitHub issue URL. The URL must point at the repo you're running in: worktrees branch from the local clone, and githog does no cross-repo lookup or cloning. A URL for a different repo is rejected.
 
-Worktrees are provisioned **sequentially** (the port scanner reads sibling `.env` files, so parallel setup would hand out colliding ports); each loop then runs independently in its own herdr pane.
+Worktrees are provisioned **sequentially** (the port scanner reads sibling `.env` files, so parallel setup would hand out colliding ports); each loop then runs in its own herdr pane.
 
 ### The Ralph loop
 
