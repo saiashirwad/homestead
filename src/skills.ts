@@ -43,7 +43,7 @@ is too ambiguous to decompose without a decision only a human can make, emit
 \`<${loop.sentinels.blockedTag}>your question here</${loop.sentinels.blockedTag}>\` and stop.`;
 
 const implementBody = (loop: ResolvedLoop): string =>
-  `You are running ONE iteration of githog's **Ralph loop** for a GitHub issue
+  `You are running ONE iteration of githog's **agent loop** for a GitHub issue
 (URL given as the argument). Every iteration starts with a CLEAN context, so the
 on-disk \`${loop.taskFile}\` is your only memory of what is already done.
 
@@ -75,7 +75,7 @@ const planDoc = (loop: ResolvedLoop, name: string): string =>
   frontmatter(name, "githog plan pass: decompose an issue into an atomic task list (plan only)", planBody(loop));
 
 const implementDoc = (loop: ResolvedLoop, name: string): string =>
-  frontmatter(name, "githog Ralph-loop iteration: implement the next task from the task list", implementBody(loop));
+  frontmatter(name, "githog agent-loop iteration: implement the next task from the task list", implementBody(loop));
 
 const skillPath = (path: Path.Path, targetDir: string, name: string): string =>
   path.join(targetDir, ".claude", "skills", name, "SKILL.md");

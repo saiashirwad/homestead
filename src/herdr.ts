@@ -38,7 +38,7 @@ const createSurface = Effect.fn("githog/create-surface")(function* (
 });
 
 // For one work item: open a herdr surface at the worktree and run the githog
-// Ralph loop INSIDE that pane (ADR-0001). The pane is a window, not a driver —
+// agent loop INSIDE that pane (ADR-0001). The pane is a window, not a driver —
 // the loop drives the agent by headless re-invocation, we just give it somewhere
 // watchable to scroll. `pane run` re-invokes THIS githog (argv[0] = the bun
 // runtime, argv[1] = the resolved cli entry) as `githog loop <issue-url>`, which
@@ -51,7 +51,7 @@ export const launchAgent = Effect.fn("githog/launch-agent")(function* (
 ) {
   const surface = agent.surface ?? "worktree";
 
-  yield* Console.log(`\n▸ Launching Ralph loop for issue #${item.number} in ${dir}`);
+  yield* Console.log(`\n▸ Launching agent loop for issue #${item.number} in ${dir}`);
   const pane = yield* createSurface(surface, dir, `issue-${item.number}`);
 
   const runtime = process.argv[0] ?? "bun";

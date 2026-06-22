@@ -4,7 +4,7 @@ import { resolveLoopSettings } from "./loop.ts";
 import { writeSkills } from "./skills.ts";
 
 // `githog init` — one-time local setup for a repo (CONTEXT.md → "Skills"). Writes
-// the Ralph-loop skills into .claude/skills, git-ignores the per-issue task file,
+// the agent-loop skills into .claude/skills, git-ignores the per-issue task file,
 // and scaffolds a starter githog.config.ts if none exists. Run once and COMMIT the
 // result: because the skills live on the default branch, every issue worktree
 // branches from them already present — so they never appear in an issue branch's
@@ -24,7 +24,7 @@ export default defineConfig({
   // Opt-in GitHub issue tracking, reversed on \`githog kill\`:
   issues: { label: "agent:wip", assign: true, comment: true },
 
-  // The Ralph loop spawns headless \`claude -p\` per iteration;
+  // The agent loop spawns headless \`claude -p\` per iteration;
   // --dangerously-skip-permissions lets it run gh/git + edit files unattended.
   agent: { command: ["claude", "--dangerously-skip-permissions"], surface: "worktree" },
 

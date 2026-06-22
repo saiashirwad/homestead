@@ -70,7 +70,7 @@ const squashToOne = Effect.fn("githog/runner/squash")(function* (cwd: string, it
 
 // Open a PR from the worktree's branch, linking the issue so a merge closes it.
 const openPr = Effect.fn("githog/runner/open-pr")(function* (cwd: string, item: WorkItem, branch: string) {
-  const body = `Closes #${item.number}\n\n🤖 Opened by githog's Ralph loop.`;
+  const body = `Closes #${item.number}\n\n🤖 Opened by githog's agent loop.`;
   yield* runExit(
     "gh",
     ["pr", "create", "--head", branch, "--title", item.title, "--body", body],
@@ -78,7 +78,7 @@ const openPr = Effect.fn("githog/runner/open-pr")(function* (cwd: string, item: 
   ).pipe(Effect.catchCause(() => Console.log(`  ⚠ gh pr create for '${branch}' failed (continuing)`)));
 });
 
-// The per-issue Ralph loop (ADR-0001): a thin IO shell around the pure core
+// The per-issue agent loop (ADR-0001): a thin IO shell around the pure core
 // (loop.ts). Runs a one-shot plan pass, then re-invokes the agent headlessly with
 // a clean context each iteration — parsing each output for sentinels — until the
 // pure `decide` says to finish. On Complete: PR + agent:review (worktree left
@@ -144,7 +144,7 @@ export const runLoop = Effect.fn("githog/run-loop")(function* (
     }
   });
 
-  yield* Console.log(`\n▸ githog Ralph loop for #${item.number}: ${item.title}`);
+  yield* Console.log(`\n▸ githog agent loop for #${item.number}: ${item.title}`);
 
   let state: LoopState = { planned: false, iterations: 0, maxIterations: loop.maxIterations };
   let outcome: Outcome = { _tag: "Working" };

@@ -1,6 +1,6 @@
 import type { LoopConfig } from "./types.ts";
 
-// The pure decision core of the Ralph loop — no Effect, no IO, no subprocess.
+// The pure decision core of the agent loop — no Effect, no IO, no subprocess.
 // `parseOutcome` reads an agent invocation's output into an Outcome; `decide`
 // maps (state, outcome) to the next Action; `advance` evolves the state after an
 // action runs. The loop runner (runner.ts) is a thin IO shell around these three

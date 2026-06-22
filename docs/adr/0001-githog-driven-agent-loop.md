@@ -1,4 +1,4 @@
-# 1. githog drives a headless Ralph loop instead of an interactive agent
+# 1. githog drives a headless agent loop instead of an interactive agent
 
 Date: 2026-06-22
 
@@ -20,7 +20,7 @@ the issue was finished, to react to it, or to introspect what happened. We want 
 
 ## Decision
 
-githog owns a **Ralph loop** per issue: the agent is re-invoked headlessly with a clean
+githog owns a **agent loop** per issue: the agent is re-invoked headlessly with a clean
 context each **iteration** until the issue is done.
 
 - A **plan pass** runs first — a one-shot headless invocation that decomposes the issue
@@ -43,7 +43,7 @@ context each **iteration** until the issue is done.
 
 - githog becomes a stateful orchestrator that observes agent output, not just a launcher.
   It must parse a noisy output stream for sentinels — fiddlier than typing one prompt.
-- Clean-context-per-iteration (the source of Ralph's quality) holds for free, because
+- Clean-context-per-iteration (the source of the loop's quality) holds for free, because
   every iteration is a fresh process.
 - The factory is introspectable: githog sees every iteration and can log it.
 - A bad task decomposition is not caught until PR/blocked time, since there is no plan

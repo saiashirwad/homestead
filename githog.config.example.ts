@@ -59,7 +59,7 @@ export default defineConfig({
 
   // branch == issue number. The label/assign/comment fields are opt-in issue
   // tracking: githog adds them when a loop starts and removes them on `githog
-  // kill`. `agent:wip` is also the listen concurrency gauge; the Ralph loop swaps
+  // kill`. `agent:wip` is also the listen concurrency gauge; the agent loop swaps
   // it to reviewLabel (completed, PR open) or blockedLabel (stuck) when it ends —
   // both free a listen slot. Omit label/assign/comment to never touch issues.
   issues: {
@@ -71,7 +71,7 @@ export default defineConfig({
     blockedLabel: "agent:blocked", // loop stuck/blocked: needs a human (default)
   },
 
-  // The agent runs as a Ralph loop (ADR-0001): githog runs a one-shot plan pass
+  // The agent runs as a agent loop (ADR-0001): githog runs a one-shot plan pass
   // that decomposes the issue into TASKS.md, then re-invokes the agent headlessly
   // (`claude -p`) with a clean context each iteration until it emits the
   // completion sentinel (→ PR + agent:review) or hits the cap / emits `<blocked>`

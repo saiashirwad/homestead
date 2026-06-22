@@ -135,7 +135,7 @@ const listenCommand = Effect.fn("githog/cli/listen")(function* () {
   yield* listen(config, consoleReporter);
 });
 
-// --- `githog loop <issue>` — drive the Ralph loop for ONE issue (ADR-0001) ----
+// --- `githog loop <issue>` — drive the agent loop for ONE issue (ADR-0001) ----
 // The loop runner: launchAgent runs this inside a herdr pane so iterations are
 // watchable. cwd is the issue's worktree, so config + branch resolve from here.
 
@@ -183,7 +183,7 @@ usage:
   githog implement-issues <issue>...     (issue = number or GitHub issue URL)
   githog <issue>...                      (bare form, implies implement-issues)
   githog listen                          (poll for 'agent:ready' issues, auto-implement)
-  githog loop <issue>                    (drive the Ralph loop for one issue — run by githog inside a pane)
+  githog loop <issue>                    (drive the agent loop for one issue — run by githog inside a pane)
   githog kill <branch-or-issue>...       (remove worktree + branch + herdr surface)
                                          (issue commands run inside a herdr pane)`;
 

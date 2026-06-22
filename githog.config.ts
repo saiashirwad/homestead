@@ -6,7 +6,7 @@
 //
 // Run from the repo root, inside a herdr session:
 //   githog setup --create my-feature
-//   githog implement-issues 2          # work issue #2 (the Ralph-loop PRD)
+//   githog implement-issues 2          # work issue #2 (the agent-loop PRD)
 //   githog listen                      # drain the agent:ready backlog
 //   githog kill my-feature
 
@@ -27,7 +27,7 @@ export default defineConfig({
     comment: true,
   },
 
-  // How each agent is launched (ADR-0001 Ralph loop). The loop spawns headless
+  // How each agent is launched (ADR-0001 agent loop). The loop spawns headless
   // `claude -p` per iteration; --dangerously-skip-permissions lets it run gh/git
   // and edit files unattended (no interactive prompt exists to approve tools in
   // headless mode). Blast radius is the worktree + host bash; the PR review is the

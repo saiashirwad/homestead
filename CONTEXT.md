@@ -22,20 +22,20 @@ config or hardcoded) is what makes the factory tunable and introspectable — a 
 be read, edited, or run by hand in a pane to debug. The same mechanism later hosts the
 backlog-filling front of the pipeline (`/grill`, `/to-prd`, `/to-issues`).
 
-### Ralph loop
+### agent loop
 The mechanism by which an agent works an issue: the agent is re-invoked with a **clean
 context** each **iteration** until the issue is done. Replaces the previous "launch
-claude interactively and type one prompt" model. Named after Geoffrey Huntley's "Ralph
-Wiggum" pattern. The loop runs *inside the herdr pane* so it can be watched live, but it
+claude interactively and type one prompt" model. The loop runs *inside the herdr pane*
+so it can be watched live, but it
 is driven by headless re-invocation, not interactive typing.
 
 ### Iteration
-One pass of the Ralph loop: a fresh agent invocation that picks up the issue's current
+One pass of the agent loop: a fresh agent invocation that picks up the issue's current
 state, does work, and exits. Iterations do not share context — state carries across
 iterations via durable artifacts, not the agent's memory.
 
 ### Plan pass
-A one-shot agent invocation that runs *before* the Ralph loop. It reads the issue and
+A one-shot agent invocation that runs *before* the agent loop. It reads the issue and
 decomposes it into a **task list** of atomic, vertical-slice tasks, written to a durable
 file in the worktree. Distinct from an iteration: it plans, it does not implement.
 
@@ -43,16 +43,16 @@ file in the worktree. Distinct from an iteration: it plans, it does not implemen
 The decomposed, ordered list of atomic tasks for one issue, produced by the plan pass
 and stored in the worktree. It is the single cross-iteration memory: each iteration picks
 the next incomplete task and marks it done, so the task list doubles as the progress log.
-The Ralph loop ends when every task is marked done.
+The agent loop ends when every task is marked done.
 
 ### Completion sentinel
 A token the agent emits (e.g. `<promise>COMPLETE</promise>`) to signal the issue is
-finished. githog watches the agent's output for it and stops the Ralph loop. The agent
+finished. githog watches the agent's output for it and stops the agent loop. The agent
 is responsible for running its own tests/checks before emitting it. An iteration cap is
 the backstop if the sentinel is never emitted.
 
 ### Completion handoff
-What githog does when the Ralph loop ends on the completion sentinel: open a pull request
+What githog does when the agent loop ends on the completion sentinel: open a pull request
 from the worktree's branch (`gh pr create`), link the issue, and move it to the
 `agent:review` state. The worktree is left alive for inspection until `githog kill`.
 The PR queue is the human review/merge surface. (A future fresh-context reviewer pass —
@@ -60,7 +60,7 @@ a clean agent invocation that posts review notes or files follow-up issues — l
 top of this.)
 
 ### Issue states
-The label-driven lifecycle of an issue: `agent:ready` (queued) → `agent:wip` (a Ralph
+The label-driven lifecycle of an issue: `agent:ready` (queued) → `agent:wip` (an agent
 loop is running) → `agent:review` (loop completed, PR open, awaiting human) /
 `agent:blocked` (loop stopped without completing — needs a human). Both `agent:review`
 and `agent:blocked` free a `listen` concurrency slot. The `agent:wip` count is the

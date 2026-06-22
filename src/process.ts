@@ -81,7 +81,7 @@ export const run = Effect.fn("githog/run")(function* (
 
 // Run a subprocess, streaming each output line live to our stdout (so it scrolls
 // in the herdr pane the loop runs in) AND accumulating the full output, returned
-// alongside the exit code. The Ralph loop needs claude -p's output BOTH watchable
+// alongside the exit code. The agent loop needs claude -p's output BOTH watchable
 // and parseable for sentinels — `capture` hides it, `runExit` discards it.
 export const captureStreaming = Effect.fn("githog/capture-streaming")(function* (
   command: string,

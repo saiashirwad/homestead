@@ -86,7 +86,7 @@ export interface LoopPromptContext {
   readonly blockedTag: string;
 }
 
-// The Ralph loop's knobs (per ADR-0001). githog drives the agent headlessly: a
+// The agent loop's knobs (per ADR-0001). githog drives the agent headlessly: a
 // one-shot plan pass decomposes the issue into `taskFile`, then iterations pick
 // the next task until the agent emits `completionSentinel` (→ PR + agent:review)
 // or hits `maxIterations` / emits a `<blockedTag>` sentinel (→ agent:blocked).
@@ -109,9 +109,9 @@ export interface AgentConfig {
   // under the repo's workspace, "workspace" makes a flat top-level one, "tab" adds
   // a tab to the parent workspace.
   readonly surface?: "worktree" | "workspace" | "tab" | undefined;
-  // The Ralph loop config (ADR-0001). Omit for sensible defaults.
+  // The agent loop config (ADR-0001). Omit for sensible defaults.
   readonly loop?: LoopConfig | undefined;
-  // @deprecated Superseded by the Ralph loop (ADR-0001). The single-shot
+  // @deprecated Superseded by the agent loop (ADR-0001). The single-shot
   // interactive "launch claude, wait for ready, type one prompt" path is gone;
   // these fields are accepted for back-compat but no longer used.
   readonly readyMarker?: string | undefined;
@@ -138,7 +138,7 @@ export interface IssuesConfig {
   // post a comment on start (true = default message; a function = custom). A
   // matching "stopped" comment is posted on kill.
   readonly comment?: boolean | ((ctx: TrackingContext) => string) | undefined;
-  // Terminal states the Ralph loop swaps `label` ("agent:wip") into when it ends:
+  // Terminal states the agent loop swaps `label` ("agent:wip") into when it ends:
   // a completed loop opens a PR and moves to `reviewLabel`, a stuck/blocked loop
   // pushes its partial branch and moves to `blockedLabel`. Both free a listen slot.
   readonly reviewLabel?: string | undefined; // default "agent:review"

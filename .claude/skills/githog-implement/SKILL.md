@@ -1,9 +1,9 @@
 ---
 name: githog-implement
-description: githog Ralph-loop iteration: implement the next task from the task list
+description: githog agent-loop iteration: implement the next task from the task list
 ---
 
-You are running ONE iteration of githog's **Ralph loop** for a GitHub issue
+You are running ONE iteration of githog's **agent loop** for a GitHub issue
 (URL given as the argument). Every iteration starts with a CLEAN context, so the
 on-disk `TASKS.md` is your only memory of what is already done.
 

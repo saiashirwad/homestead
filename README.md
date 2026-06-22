@@ -69,7 +69,7 @@ export default defineConfig({
     { label: "seed", run: ["bun", "run", "db:seed"], injectEnv: ["DATABASE_URL"], fatal: false },
   ],
 
-  // the Ralph loop: githog plans the issue, then drives the agent headlessly
+  // the agent loop: githog plans the issue, then drives the agent headlessly
   // with a clean context each iteration until it's done (ADR-0001)
   agent: {
     command: ["claude"],
@@ -86,7 +86,7 @@ export default defineConfig({
 | `services` | TCP dependencies probed before setup; if unreachable, `start` is run and githog polls until it's up. |
 | `setup` | ordered commands. Tokens `{{slug}}`, `{{branch}}`, `{{targetDir}}`, `{{env:KEY}}` are substituted; `injectEnv` puts computed-env values in the child's environment (beating any baked-in `--env-file`); `fatal: false` warns-and-continues. |
 | `agent` | `command` (default `["claude"]`), `surface` (`"worktree"` nests under the repo, `"workspace"`, or `"tab"`), and the `loop` block. |
-| `agent.loop` | the Ralph loop knobs: `maxIterations` (cap, default 25), `completionSentinel`/`blockedTag` (default `<promise>COMPLETE</promise>` / `blocked`), `planSkill`/`implementSkill` (default `githog-plan`/`githog-implement`), `taskFile` (default `TASKS.md`), `seedSkills` (default true), and `planPrompt`/`iterationPrompt` overrides. |
+| `agent.loop` | the agent loop knobs: `maxIterations` (cap, default 25), `completionSentinel`/`blockedTag` (default `<promise>COMPLETE</promise>` / `blocked`), `planSkill`/`implementSkill` (default `githog-plan`/`githog-implement`), `taskFile` (default `TASKS.md`), `seedSkills` (default true), and `planPrompt`/`iterationPrompt` overrides. |
 | `worktreeDir` | where new worktrees land (default `~/worktrees/<repo>/<slug>`). |
 | `issues.branch` | branch name per issue (default the issue number). |
 | `issues.label` / `issues.assign` / `issues.comment` | **opt-in** issue tracking — see below. |
@@ -128,7 +128,7 @@ Re-running on an already-isolated worktree is idempotent — it reuses the exist
 
 ### `githog implement-issues`
 
-For each GitHub issue: create a worktree, provision it, open a herdr surface pointed at it, and start the **Ralph loop** inside that pane (see below). Run from inside the target repo, in a herdr session.
+For each GitHub issue: create a worktree, provision it, open a herdr surface pointed at it, and start the **agent loop** inside that pane (see below). Run from inside the target repo, in a herdr session.
 
 ```bash
 githog implement-issues 21 22 23
@@ -140,9 +140,9 @@ An issue can be a number or a full GitHub issue URL. A URL is a convenience over
 
 Worktrees are provisioned **sequentially** (the port scanner reads sibling `.env` files, so parallel setup would hand out colliding ports); each loop then runs independently in its own herdr pane.
 
-### The Ralph loop
+### The agent loop
 
-githog doesn't take one shot at an issue — it drives the agent to done (per [ADR-0001](./docs/adr/0001-githog-driven-ralph-loop.md)). After a worktree is provisioned, githog runs `githog loop <issue>` **inside the herdr pane** so you can watch it scroll by live:
+githog doesn't take one shot at an issue — it drives the agent to done (per [ADR-0001](./docs/adr/0001-githog-driven-agent-loop.md)). After a worktree is provisioned, githog runs `githog loop <issue>` **inside the herdr pane** so you can watch it scroll by live:
 
 1. **Plan pass** — a one-shot `claude -p` invocation (`/githog-plan`) decomposes the issue into an atomic, vertical-slice task list committed to `TASKS.md` (the loop's first commit and its cross-iteration memory).
 2. **Iterations** — each iteration is a fresh `claude -p` invocation (`/githog-implement`) with a **clean context**: it picks the next incomplete task from `TASKS.md`, implements it, runs its own checks, commits, and marks the task done.
@@ -160,7 +160,7 @@ Watch the repo and auto-implement issues as they're queued. Run it in a long-liv
 githog listen
 ```
 
-Label an issue **`agent:ready`** and githog picks it up: it claims the issue (swaps the label to `agent:wip` so it's never grabbed twice), then runs the same flow as `implement-issues` — provision a worktree and start the Ralph loop. The loop drains the issue to a terminal state on its own; the label *is* the queue:
+Label an issue **`agent:ready`** and githog picks it up: it claims the issue (swaps the label to `agent:wip` so it's never grabbed twice), then runs the same flow as `implement-issues` — provision a worktree and start the agent loop. The loop drains the issue to a terminal state on its own; the label *is* the queue:
 
 ```
 agent:ready ──(githog claims)──► agent:wip ──(loop completes)──► agent:review (PR open)
