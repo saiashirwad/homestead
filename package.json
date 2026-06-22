@@ -13,7 +13,8 @@
     "prepare": "./scripts/prepare-effect.sh",
     "githog": "bun ./src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test"
+    "test": "bun test",
+    "check": "bun run typecheck && bun test"
   },
   "devDependencies": {
     "@types/bun": "latest",

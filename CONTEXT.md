@@ -15,7 +15,7 @@ worktree's herdr pane.
 ### Skills
 The prompt logic for each stage of work, shipped as versioned Claude skills that githog
 seeds into a worktree at provision time and invokes by name: `/githog-plan` (the plan
-pass), `/githog-implement` (one iteration), and later `/githog-review` (the fresh-context
+pass), `/githog-implement` (one iteration), and `/githog-review` (the fresh-context
 reviewer). Built-in defaults apply if a skill is absent; `githog.config.ts` can override
 the skill name or supply a custom prompt. Keeping the logic in skills (not buried in
 config or hardcoded) is what makes the factory tunable and introspectable — a skill can
@@ -52,12 +52,39 @@ is responsible for running its own tests/checks before emitting it. An iteration
 the backstop if the sentinel is never emitted.
 
 ### Completion handoff
-What githog does when the agent loop ends on the completion sentinel: open a pull request
-from the worktree's branch (`gh pr create`), link the issue, and move it to the
-`agent:review` state. The worktree is left alive for inspection until `githog kill`.
-The PR queue is the human review/merge surface. (A future fresh-context reviewer pass —
-a clean agent invocation that posts review notes or files follow-up issues — layers on
-top of this.)
+What githog does when the agent loop ends on the completion sentinel (and, with
+review-converge on, only after the diff clears both gates): open a pull request from the
+worktree's branch (`gh pr create`), link the issue, and move it to the `agent:review`
+state. The worktree is left alive for inspection until `githog kill`. The PR queue is the
+human review/merge surface.
+
+### Review-converge cycle
+The optional gate (ADR-0003, off by default) between a builder's completion sentinel and
+the completion handoff: build → **machine gate** → **fresh-context reviewer** → (fix and
+repeat if either fails) → PR only when the gate is green *and* the review is clean. It
+exists because a builder grading its own exam rationalises its own shortcuts; githog
+enforces the two gates itself rather than trusting the builder's `COMPLETE`. The cycle is
+capped (`maxReviewRounds`); a builder that can never satisfy the reviewer ends
+`agent:blocked` for a human. Findings and gate failures are carried across the amnesia
+boundary by appending them to the task list as fix tasks — so a review pass is symmetric
+with a plan pass (plan decomposes the issue, review decomposes the defects).
+
+### Machine gate
+The deterministic half of the review-converge cycle: githog runs a configured
+`verifyCommand` (the project's own checks, e.g. typecheck + test) and reads its exit code
+directly. A non-zero exit is never "complete", whatever the builder claimed — the failure
+becomes a fix task and the loop rebuilds. Unset `verifyCommand` means review-only (no
+machine gate). This is just the project's configured command; githog adds no formal or
+mathematical verification.
+
+### Fresh-context reviewer
+The adversarial half of the review-converge cycle: a separate agent invocation
+(`/githog-review`) over the whole diff, run in a **clean context with no shared history
+with the builder** — always fresh, even when `resume` continuity (ADR-0002) is on, so it
+stays hostile instead of endorsing the author's choices. It reads the issue, the task
+list, and the diff; checks the work against each slice's acceptance criteria (so "clean"
+means "satisfies the spec", not "compiles"); then either appends concrete fix tasks and
+signals findings, signs off clean, or `<blocked>`s on a human-only question.
 
 ### Issue states
 The label-driven lifecycle of an issue: `agent:ready` (queued) → `agent:wip` (an agent

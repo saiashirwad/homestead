@@ -84,6 +84,10 @@ export interface LoopPromptContext {
   readonly taskFile: string;
   readonly completionSentinel: string;
   readonly blockedTag: string;
+  // The review pass's signals (ADR-0003), so a `reviewPrompt` override can tell the
+  // reviewer which tokens to emit for a clean diff vs appended findings.
+  readonly reviewCleanSentinel: string;
+  readonly reviewFindingsSentinel: string;
 }
 
 // The agent loop's knobs (per ADR-0001). githog drives the agent headlessly: a
@@ -102,10 +106,19 @@ export interface LoopConfig {
   // resumes the prior claude session each iteration so context carries forward —
   // opt in per project to trade the clean-context quality floor for continuity.
   readonly resume?: boolean | undefined;
+  // Review-converge (ADR-0003), all optional, all defaulting to today's behaviour.
+  // The whole feature is off until `review` is set true.
+  readonly review?: boolean | undefined; // master opt-in (default false => builder Complete opens the PR as now)
+  readonly verifyCommand?: ReadonlyArray<string> | undefined; // deterministic machine gate (unset => review-only, no gate)
+  readonly reviewSkill?: string | undefined; // fresh-context reviewer skill (default "githog-review")
+  readonly maxReviewRounds?: number | undefined; // convergence cap before agent:blocked (default 3)
+  readonly reviewCleanSentinel?: string | undefined; // default "<review>CLEAN</review>"
+  readonly reviewFindingsSentinel?: string | undefined; // default "<review>FINDINGS</review>"
   // Override the built-in prompt text. When set, used verbatim instead of the
   // `/<skill>`-or-fallback prompt the runner builds.
   readonly planPrompt?: ((ctx: LoopPromptContext) => string) | undefined;
   readonly iterationPrompt?: ((ctx: LoopPromptContext) => string) | undefined;
+  readonly reviewPrompt?: ((ctx: LoopPromptContext) => string) | undefined;
 }
 
 export interface AgentConfig {
