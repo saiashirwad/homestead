@@ -44,6 +44,19 @@ export const nextFreePort = (base: number, used: ReadonlySet<number>): number =>
   return port;
 };
 
+// Resolve githog's own version from raw package.json text. Pure over content
+// (no I/O) so it's unit-testable; degrades to "0.0.0" when the field is
+// missing/empty or the JSON is malformed, so `githog version` never throws.
+export const resolveVersion = (packageJson: string): string => {
+  try {
+    const version = (JSON.parse(packageJson) as { version?: unknown }).version;
+    if (typeof version === "string" && version.length > 0) return version;
+  } catch {
+    // fall through to the fallback below
+  }
+  return "0.0.0";
+};
+
 // Substitute {{slug}}, {{branch}}, … and {{env:KEY}} tokens in a setup-step argv
 // element. Unknown tokens are left intact (so a literal {{x}} survives).
 export const applyTemplate = (

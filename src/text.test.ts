@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { applyTemplate, nextFreePort, readEnvVar, setEnvVar, slugify } from "./text.ts";
+import { applyTemplate, nextFreePort, readEnvVar, resolveVersion, setEnvVar, slugify } from "./text.ts";
 
 test("slugify collapses non-alphanumerics and trims", () => {
   expect(slugify("worktree/brave-river")).toBe("worktree_brave_river");
@@ -24,6 +24,13 @@ test("nextFreePort returns lowest free >= base", () => {
   expect(nextFreePort(3000, new Set())).toBe(3000);
   expect(nextFreePort(3000, new Set([3000, 3001]))).toBe(3002);
   expect(nextFreePort(3000, new Set([3001]))).toBe(3000);
+});
+
+test("resolveVersion returns the version field, else a sane fallback", () => {
+  expect(resolveVersion('{"name":"githog","version":"0.1.0"}')).toBe("0.1.0");
+  expect(resolveVersion('{"name":"githog"}')).toBe("0.0.0");
+  expect(resolveVersion('{"name":"githog","version":""}')).toBe("0.0.0");
+  expect(resolveVersion("not json at all")).toBe("0.0.0");
 });
 
 test("applyTemplate substitutes vars and env, leaves unknown tokens", () => {

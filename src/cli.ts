@@ -12,6 +12,7 @@ import { capture } from "./process.ts";
 import { runLoop } from "./runner.ts";
 import { killBranch } from "./teardown.ts";
 import { markStarted } from "./tracking.ts";
+import { resolveVersion } from "./text.ts";
 import { resolveRepo, setupWorktree } from "./worktree.ts";
 import type { WorktreeOptions } from "./types.ts";
 
@@ -173,6 +174,20 @@ const initCommand = Effect.fn("githog/cli/init")(function* () {
   yield* initRepo(repo.primaryRoot);
 });
 
+// --- `githog version` / `--version` / `-v` — print githog's own version -------
+// Reads package.json relative to this source file (not cwd), then the pure
+// resolver. A read failure degrades to "" so resolveVersion's fallback applies.
+
+const versionCommand = Effect.fn("githog/cli/version")(function* () {
+  // Pass the URL straight to Bun.file — its `.pathname` percent-encodes spaces,
+  // which would ENOENT when githog is installed under a path containing them.
+  const packageJson = new URL("../package.json", import.meta.url);
+  const content = yield* Effect.tryPromise(() => Bun.file(packageJson).text()).pipe(
+    Effect.orElseSucceed(() => ""),
+  );
+  yield* Console.log(`githog ${resolveVersion(content)}`);
+});
+
 // --- dispatch ---------------------------------------------------------------
 
 const USAGE = `githog — config-driven worktree + agent provisioning
@@ -185,12 +200,20 @@ usage:
   githog listen                          (poll for 'agent:ready' issues, auto-implement)
   githog loop <issue>                    (drive the agent loop for one issue — run by githog inside a pane)
   githog kill <branch-or-issue>...       (remove worktree + branch + herdr surface)
+  githog version                         (print githog's version; also --version / -v)
                                          (issue commands run inside a herdr pane)`;
 
 // `listen` renders the live TUI dashboard on an interactive terminal (OpenTUI
 // owns the screen and runs the Effect loop forked inside it). Piped/non-TTY, or
 // with --plain, it falls back to the line-logging path below.
-if (process.argv[2] === "listen" && process.stdout.isTTY && !hasFlag("plain")) {
+// `--version`/`-v` are matched before the subcommand switch so a bare
+// `githog --version` isn't read as an issue ref or a usage error.
+const wantsVersion =
+  process.argv[2] === "version" || process.argv.includes("--version") || process.argv.includes("-v");
+
+if (wantsVersion) {
+  versionCommand().pipe(Effect.provide(BunServices.layer), BunRuntime.runMain);
+} else if (process.argv[2] === "listen" && process.stdout.isTTY && !hasFlag("plain")) {
   await runListenTui();
 } else {
   const refs = issueRefs();
