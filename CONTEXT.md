@@ -19,8 +19,12 @@ pass), `/githog-implement` (one iteration), and later `/githog-review` (the fres
 reviewer). Built-in defaults apply if a skill is absent; `githog.config.ts` can override
 the skill name or supply a custom prompt. Keeping the logic in skills (not buried in
 config or hardcoded) is what makes the factory tunable and introspectable — a skill can
-be read, edited, or run by hand in a pane to debug. The same mechanism later hosts the
-backlog-filling front of the pipeline (`/grill`, `/to-prd`, `/to-issues`).
+be read, edited, or run by hand in a pane to debug. The same mechanism also hosts the
+backlog-filling front of the pipeline: `/githog-new-issue` files an agent-ready issue
+from a PRD or description (labelled so `listen` picks it up), alongside the future
+`/grill`, `/to-prd`, and `/to-issues`. Unlike the loop skills (githog-fired, so
+`disable-model-invocation`), the issue-authoring skill is model-invocable — a user can
+ask the model to file an agent-ready issue and it triggers.
 
 ### agent loop
 The mechanism by which an agent works an issue: the agent is re-invoked with a **clean

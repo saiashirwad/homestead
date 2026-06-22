@@ -1,5 +1,6 @@
 import { Console, Effect, FileSystem, Path } from "effect";
 import { loadConfig } from "./config.ts";
+import { DEFAULT_READY_LABEL, resolveReadyLabel } from "./listen.ts";
 import { resolveLoopSettings } from "./loop.ts";
 import { writeSkills } from "./skills.ts";
 
@@ -67,7 +68,8 @@ export const initRepo = Effect.fn("githog/init")(function* (primaryRoot: string)
   // 2. skills — write the bundled loop skills (using the repo's loop settings if it
   //    has a config, else defaults), skipping any the repo already customised.
   const loop = resolveLoopSettings(config?.agent?.loop);
-  yield* writeSkills(primaryRoot, loop);
+  const readyLabel = config ? resolveReadyLabel(config) : DEFAULT_READY_LABEL;
+  yield* writeSkills(primaryRoot, loop, readyLabel);
 
   // 3. ignore the per-issue task file so it never lands in an issue branch's commits.
   const taskPattern = `/${loop.taskFile}`;
@@ -77,6 +79,7 @@ export const initRepo = Effect.fn("githog/init")(function* (primaryRoot: string)
   yield* Console.log(
     `\n✅ githog init done. Next:\n` +
       `   git add -A && git commit -m "githog: init"   # track the skills + .gitignore on your default branch\n` +
-      `   githog listen                                 # (in a herdr pane) drain agent:ready issues`,
+      `   githog listen                                 # (in a herdr pane) drain ${readyLabel} issues\n` +
+      `   /githog-new-issue <prd>                       # (in claude) file a ${readyLabel} issue listen will pick up`,
   );
 });

@@ -6,11 +6,22 @@ import { resolveRepo, setupWorktree } from "./worktree.ts";
 import type { Reporter } from "./dashboard/reporter.ts";
 import type { GithogConfig, WorkItem } from "./types.ts";
 
-const DEFAULT_READY_LABEL = "agent:ready";
+// The single source of truth for the trigger ("ready") label — the queue githog
+// drains. Both the `listen` daemon and the seeded `githog-new-issue` skill name it,
+// so it lives here and is resolved through `resolveReadyLabel` to stay in lockstep.
+export const DEFAULT_READY_LABEL = "agent:ready";
 const DEFAULT_WIP_LABEL = "agent:wip";
 const DEFAULT_BLOCKED_LABEL = "agent:blocked";
 const DEFAULT_INTERVAL_SECONDS = 30;
 const DEFAULT_MAX_CONCURRENT = 3;
+
+// The effective trigger label for a loaded config: the `listen.label` override when
+// set to a non-empty string, else the default. Trimmed so a blank override can't
+// silently produce an empty (un-listenable) label.
+export const resolveReadyLabel = (config: GithogConfig): string => {
+  const override = config.listen?.label;
+  return override !== undefined && override.trim() !== "" ? override : DEFAULT_READY_LABEL;
+};
 // How long an issue may sit in `wip` with no live loop process before the daemon
 // reclaims its slot. Comfortably longer than worktree setup (install + vendoring),
 // so an issue still provisioning — wip-but-no-loop-yet — is never reclaimed.
@@ -71,7 +82,7 @@ export const listen = Effect.fn("githog/listen")(function* (config: GithogConfig
     return yield* Effect.die(new Error("[githog] config has no `agent` block — listen needs one to launch claude."));
   }
   const repo = yield* resolveRepo();
-  const readyLabel = config.listen?.label ?? DEFAULT_READY_LABEL;
+  const readyLabel = resolveReadyLabel(config);
   const wipLabel = config.issues?.label ?? DEFAULT_WIP_LABEL;
   const blockedLabel = config.issues?.blockedLabel ?? DEFAULT_BLOCKED_LABEL;
   const intervalSeconds = config.listen?.intervalSeconds ?? DEFAULT_INTERVAL_SECONDS;

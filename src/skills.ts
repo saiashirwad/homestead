@@ -10,12 +10,14 @@ import type { LoopPromptContext } from "./types.ts";
 // The task-file name and sentinel tokens are baked in from the resolved config so
 // a hand-run skill and a headless run behave identically.
 
-// These skills are only ever fired by githog (the loop invokes them by name) or by
+// The loop skills are only ever fired by githog (the loop invokes them by name) or by
 // hand — never autonomously by the model mid-work — so they carry
 // `disable-model-invocation: true`: zero per-turn context load, still callable as
-// `/<name> <url>`. The `description` is therefore human-facing.
-const frontmatter = (name: string, description: string, body: string): string =>
-  `---\nname: ${name}\ndescription: ${description}\ndisable-model-invocation: true\n---\n\n${body}\n`;
+// `/<name> <url>`. The `description` is therefore human-facing. The issue-authoring
+// skill is the deliberate exception (`modelInvocable`): it omits that line so the model
+// CAN trigger it when asked to file an agent-ready issue — see `newIssueDoc`.
+const frontmatter = (name: string, description: string, body: string, modelInvocable = false): string =>
+  `---\nname: ${name}\ndescription: ${description}\n${modelInvocable ? "" : "disable-model-invocation: true\n"}---\n\n${body}\n`;
 
 // The on-disk task file's shape — the single source of truth shared by both skills,
 // so the plan pass that WRITES it and the iteration that READS it can never drift.
@@ -108,6 +110,43 @@ const planDoc = (loop: ResolvedLoop, name: string): string =>
 const implementDoc = (loop: ResolvedLoop, name: string): string =>
   frontmatter(name, "githog agent-loop iteration: implement the next vertical slice from the task list", implementBody(loop));
 
+// The issue-authoring skill at the backlog-filling front of the pipeline (CONTEXT.md →
+// "Skills"). Unlike the loop skills it is **model-invocable** — a user can ask the model
+// to file an agent-ready issue and it triggers — so `newIssueDoc` omits
+// `disable-model-invocation`. The resolved trigger label is baked in so the seeded body
+// names the exact label `githog listen` is draining.
+export const NEW_ISSUE_SKILL = "githog-new-issue";
+
+const newIssueBody = (readyLabel: string): string =>
+  `You file a new GitHub issue that githog's \`listen\` daemon will pick up automatically,
+by labelling it with the trigger label \`${readyLabel}\`.
+
+You are given a PRD or short description as the argument. If the argument is empty, draft
+a PRD WITH the user first — ask what the issue should cover and write it up — before going
+further. Steps:
+
+1. From the PRD, derive a concise, specific issue title — a one-line summary of the work,
+   not the whole PRD.
+2. Show the user the drafted title and body and CONFIRM before creating anything. Creating
+   an issue is outward-facing and not easily undone, so do not proceed until the user
+   approves; revise the draft if they ask.
+3. Ensure the trigger label exists, so the issue is listenable the moment it is created:
+   \`gh label create ${readyLabel} --color 1D76DB --force\`
+4. Create the issue, labelled with the trigger label:
+   \`gh issue create --title <title> --body <prd> --label ${readyLabel}\`
+5. Print the created issue's URL.
+
+Once the issue carries \`${readyLabel}\`, githog \`listen\` claims it and starts an agent
+loop on it with no further action from you.`;
+
+const newIssueDoc = (readyLabel: string): string =>
+  frontmatter(
+    NEW_ISSUE_SKILL,
+    "Create (file) a new agent-ready GitHub issue from a PRD or description, labelled so githog's listen daemon picks it up and starts an agent loop",
+    newIssueBody(readyLabel),
+    true,
+  );
+
 const skillPath = (path: Path.Path, targetDir: string, name: string): string =>
   path.join(targetDir, ".claude", "skills", name, "SKILL.md");
 
@@ -126,13 +165,14 @@ export const skillPresent = Effect.fn("githog/skills/present")(function* (target
 // branch) so worktrees inherit the skills already-committed and never carry them in
 // an issue branch's diff. Best-effort: a write failure warns and continues (the
 // runner's inline fallback still works for a repo that never ran init).
-export const writeSkills = Effect.fn("githog/skills/write")(function* (targetDir: string, loop: ResolvedLoop) {
+export const writeSkills = Effect.fn("githog/skills/write")(function* (targetDir: string, loop: ResolvedLoop, readyLabel: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
   const skills: ReadonlyArray<readonly [string, string]> = [
     [loop.planSkill, planDoc(loop, loop.planSkill)],
     [loop.implementSkill, implementDoc(loop, loop.implementSkill)],
+    [NEW_ISSUE_SKILL, newIssueDoc(readyLabel)],
   ];
 
   for (const [name, doc] of skills) {
