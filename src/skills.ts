@@ -35,7 +35,8 @@ You are given an issue URL as the argument. Steps:
    - [ ] Second atomic task
    \`\`\`
 
-4. Commit it: \`git add ${loop.taskFile} && git commit -m "githog: plan #<number>"\`.
+4. Do NOT commit \`${loop.taskFile}\` — githog git-ignores it; it is loop scaffolding,
+   not part of the change. Just leave it written on disk.
 
 Do NOT write production code, tests, or any other file in this pass. If the issue
 is too ambiguous to decompose without a decision only a human can make, emit
@@ -44,7 +45,7 @@ is too ambiguous to decompose without a decision only a human can make, emit
 const implementBody = (loop: ResolvedLoop): string =>
   `You are running ONE iteration of githog's **Ralph loop** for a GitHub issue
 (URL given as the argument). Every iteration starts with a CLEAN context, so the
-committed \`${loop.taskFile}\` is your only memory of what is already done.
+on-disk \`${loop.taskFile}\` is your only memory of what is already done.
 
 Do exactly one task, then stop:
 
@@ -53,8 +54,8 @@ Do exactly one task, then stop:
 3. Run the relevant checks (typecheck + the tests touching your change). Fix what
    you broke before continuing.
 4. Commit your work with a message describing the task.
-5. Mark the task done — change its \`- [ ]\` to \`- [x]\` in \`${loop.taskFile}\` —
-   and commit that too.
+5. Mark the task done — change its \`- [ ]\` to \`- [x]\` in \`${loop.taskFile}\`.
+   Do NOT commit \`${loop.taskFile}\` (it is git-ignored loop scaffolding); just save it.
 
 Then decide how to end THIS iteration:
 
@@ -89,10 +90,12 @@ export const skillPresent = Effect.fn("githog/skills/present")(function* (target
     .pipe(Effect.catchCause(() => Effect.succeed(false)));
 });
 
-// Write the bundled plan/implement skills into the worktree's .claude/skills at
-// provision time, skipping any the repo already provides. Best-effort: a write
-// failure warns and continues (the runner's inline fallback still works).
-export const seedSkills = Effect.fn("githog/skills/seed")(function* (targetDir: string, loop: ResolvedLoop) {
+// Write the bundled plan/implement skills into a repo's .claude/skills, skipping
+// any the repo already provides. Called by `githog init` (once, on the default
+// branch) so worktrees inherit the skills already-committed and never carry them in
+// an issue branch's diff. Best-effort: a write failure warns and continues (the
+// runner's inline fallback still works for a repo that never ran init).
+export const writeSkills = Effect.fn("githog/skills/write")(function* (targetDir: string, loop: ResolvedLoop) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
@@ -131,7 +134,6 @@ export const planPrompt = (skillName: string, present: boolean, ctx: LoopPromptC
           planSkill: skillName,
           implementSkill: skillName,
           taskFile: ctx.taskFile,
-          seedSkills: false,
         }),
       );
 
@@ -146,6 +148,5 @@ export const iterationPrompt = (skillName: string, present: boolean, ctx: LoopPr
           planSkill: skillName,
           implementSkill: skillName,
           taskFile: ctx.taskFile,
-          seedSkills: false,
         }),
       );

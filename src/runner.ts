@@ -17,14 +17,6 @@ const DEFAULT_WIP_LABEL = "agent:wip";
 const DEFAULT_REVIEW_LABEL = "agent:review";
 const DEFAULT_BLOCKED_LABEL = "agent:blocked";
 
-// `git add -A && git commit` in the worktree, tolerating "nothing to commit". A
-// safety net after the plan pass so the task list lands as a commit even if the
-// agent forgot to commit it; the agent owns its own commits during iterations.
-const commitAll = Effect.fn("githog/runner/commit-all")(function* (cwd: string, message: string) {
-  yield* runExit("git", ["add", "-A"], { cwd }).pipe(Effect.catchCause(() => Effect.succeed(1)));
-  yield* runExit("git", ["commit", "-m", message], { cwd }).pipe(Effect.catchCause(() => Effect.succeed(1)));
-});
-
 // Push the branch to origin so a PR can open / a blocked branch is recoverable.
 // Returns whether the push succeeded — a non-fast-forward rejection (e.g. a stale
 // origin/<branch> left by a prior run) must NOT be ignored, or we'd open a PR
@@ -130,9 +122,8 @@ export const runLoop = Effect.fn("githog/run-loop")(function* (
         : `\n▸ #${item.number} — iteration ${state.iterations + 1}/${loop.maxIterations}`,
     );
     const { output } = yield* invoke(prompt);
-    // Safety net: commit the task list even if the plan skill forgot to. Iterations
-    // own their own commits, so we only force-commit after the plan pass.
-    if (isPlan) yield* commitAll(worktreeDir, `githog: plan #${item.number}`);
+    // The plan pass writes a git-ignored task file and commits nothing; iterations
+    // own their own commits of real work. So there's no scaffolding commit here.
     state = advance(state, action);
     outcome = parseOutcome(output, loop.sentinels);
     // Guard: a plan pass that emitted no sentinel but produced no task list has

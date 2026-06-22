@@ -97,7 +97,6 @@ export interface LoopConfig {
   readonly planSkill?: string | undefined; // skill invoked for the plan pass (default "githog-plan")
   readonly implementSkill?: string | undefined; // skill invoked per iteration (default "githog-implement")
   readonly taskFile?: string | undefined; // durable cross-iteration task list (default "TASKS.md")
-  readonly seedSkills?: boolean | undefined; // write the bundled skills into the worktree at provision (default true)
   // Override the built-in prompt text. When set, used verbatim instead of the
   // `/<skill>`-or-fallback prompt the runner builds.
   readonly planPrompt?: ((ctx: LoopPromptContext) => string) | undefined;

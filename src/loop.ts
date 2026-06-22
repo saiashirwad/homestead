@@ -93,7 +93,6 @@ export interface ResolvedLoop {
   readonly planSkill: string;
   readonly implementSkill: string;
   readonly taskFile: string;
-  readonly seedSkills: boolean;
 }
 
 export const resolveLoopSettings = (loop?: LoopConfig): ResolvedLoop => ({
@@ -105,7 +104,6 @@ export const resolveLoopSettings = (loop?: LoopConfig): ResolvedLoop => ({
   planSkill: loop?.planSkill ?? "githog-plan",
   implementSkill: loop?.implementSkill ?? "githog-implement",
   taskFile: loop?.taskFile ?? "TASKS.md",
-  seedSkills: loop?.seedSkills ?? true,
 });
 
 // Evolve the loop state after an action has run. RunPlan records that planning

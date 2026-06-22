@@ -3,8 +3,6 @@ import * as os from "node:os";
 import { ServiceUnavailable } from "./errors.ts";
 import { applyTemplate, nextFreePort, readEnvVar, setEnvVar, slugify } from "./text.ts";
 import { capture, pollSchedule, probeTcp, run, runExit } from "./process.ts";
-import { resolveLoopSettings } from "./loop.ts";
-import { seedSkills } from "./skills.ts";
 import type { GithogConfig, Plan, WorktreeContext, WorktreeOptions } from "./types.ts";
 
 const DEFAULT_ENV_SOURCE = ".env";
@@ -309,12 +307,9 @@ export const setupWorktree = (config: GithogConfig, options: WorktreeOptions) =>
       yield* config.afterSetup(ctx).pipe(Effect.orDie);
     }
 
-    // Seed the Ralph-loop skills so the agent (and a human debugging by hand) runs
-    // under the same instructions. Only when an agent is configured to use them.
-    if (config.agent !== undefined) {
-      const loop = resolveLoopSettings(config.agent.loop);
-      if (loop.seedSkills) yield* seedSkills(plan.targetDir, loop);
-    }
+    // Loop skills are installed once by `githog init` on the default branch, so the
+    // worktree inherits them already-committed (no per-worktree seeding, which used
+    // to commit them into every issue branch's diff).
 
     yield* printDone(plan);
     return plan;

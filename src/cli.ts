@@ -3,6 +3,7 @@ import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Console, Effect } from "effect";
 import { loadConfig } from "./config.ts";
 import { launchAgent } from "./herdr.ts";
+import { initRepo } from "./init.ts";
 import { currentRepoSlug, parseIssueArg, resolveIssue, type IssueRef } from "./issues.ts";
 import { consoleReporter } from "./dashboard/reporter.ts";
 import { runListenTui } from "./dashboard/run.tsx";
@@ -165,11 +166,19 @@ const killCommand = Effect.fn("githog/cli/kill")(function* () {
   yield* Console.log(`\n✅ killed ${branches.length}: ${branches.join(", ")}`);
 });
 
+// --- `githog init` — one-time local setup (config + skills + .gitignore) -------
+
+const initCommand = Effect.fn("githog/cli/init")(function* () {
+  const repo = yield* resolveRepo();
+  yield* initRepo(repo.primaryRoot);
+});
+
 // --- dispatch ---------------------------------------------------------------
 
 const USAGE = `githog — config-driven worktree + agent provisioning
 
 usage:
+  githog init                            (one-time: scaffold config + loop skills + .gitignore)
   githog setup [--create <branch>] [--from <ref>] [--dir <path>] [--no-setup] [--dry-run]
   githog implement-issues <issue>...     (issue = number or GitHub issue URL)
   githog <issue>...                      (bare form, implies implement-issues)
@@ -186,7 +195,9 @@ if (process.argv[2] === "listen" && process.stdout.isTTY && !hasFlag("plain")) {
 } else {
   const refs = issueRefs();
   const program =
-    process.argv[2] === "setup"
+    process.argv[2] === "init"
+      ? initCommand()
+      : process.argv[2] === "setup"
       ? setupCommand()
       : process.argv[2] === "listen"
         ? listenCommand()
