@@ -1,0 +1,44 @@
+{
+  "name": "homestead",
+  "version": "0.1.2",
+  "description": "Give every git worktree its own isolated dev environment — ports, database, .env — and fan GitHub issues out into parallel coding agents, one worktree each.",
+  "module": "index.ts",
+  "type": "module",
+  "bin": {
+    "homestead": "src/cli.ts"
+  },
+  "exports": {
+    ".": "./index.ts"
+  },
+  "files": [
+    "index.ts",
+    "src",
+    "homestead.config.example.ts",
+    "README.md"
+  ],
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "prepare": "./scripts/prepare-effect.sh",
+    "homestead": "bun ./src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "check": "bun run typecheck && bun test",
+    "release": "./scripts/release.sh"
+  },
+  "devDependencies": {
+    "@effect/language-service": "^0.86.2",
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "@effect/platform-bun": "^4.0.0-beta.85",
+    "effect": "^4.0.0-beta.85"
+  }
+}
