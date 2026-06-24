@@ -1,6 +1,6 @@
 {
   "name": "homestead",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Give every git worktree its own isolated dev environment — ports, database, .env — and fan GitHub issues out into parallel coding agents, one worktree each.",
   "module": "index.ts",
   "type": "module",
