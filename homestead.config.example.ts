@@ -72,9 +72,8 @@ export default defineConfig({
   },
 
   // homestead boots an interactive agent in a herdr pane per issue, waits for its
-  // REPL, and types a kickoff prompt once (ADR-0004) — then steps away. You drive
-  // the session by hand. The default prompt starts the superpowers workflow on the
-  // issue; override `prompt` to customise it or `command` to use another agent.
+  // REPL, and types a kickoff prompt once — then steps away. You drive
+  // the session by hand. Override `prompt` only if you want a custom kickoff.
   agent: {
     command: ["claude"],
     surface: "worktree", // nest each agent under the repo's workspace in herdr
@@ -82,6 +81,6 @@ export default defineConfig({
     // readyTimeoutMs: 30000,               // how long to wait for the REPL
     // trustPrompt: { marker: "trust this folder", confirm: ["Enter"] },  // Claude's default
     // prompt: (ctx) =>
-    //   `Work GitHub issue #${ctx.item.number} (${ctx.item.url}). Start with superpowers brainstorming.`,
+    //   `Work GitHub issue #${ctx.item.number} (${ctx.item.url}). Read the issue and propose a plan.`,
   },
 });

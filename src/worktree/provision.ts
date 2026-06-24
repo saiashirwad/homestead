@@ -2,8 +2,8 @@ import { Console, Effect, FileSystem } from "effect";
 import { ConfigInvalid, ServiceUnavailable } from "../errors.ts";
 import { applyTemplate, setEnvVar } from "../text.ts";
 import { pollSchedule, probeTcp, run, runExit } from "../process.ts";
+import { DEFAULT_SERVICE_TIMEOUT_MS } from "../defaults.ts";
 import {
-  DEFAULT_SERVICE_TIMEOUT_MS,
   type HomesteadConfig,
   type Plan,
 } from "../types.ts";

@@ -3,8 +3,8 @@ import { UsageError } from "../errors.ts";
 import { launchAgent } from "../herdr/agent.ts";
 import { resolveIssue, validateIssueRefs, type IssueRef } from "../issues.ts";
 import { markStarted } from "../tracking.ts";
+import { resolveAgentDefaults } from "../agent/defaults.ts";
 import {
-  resolveAgentDefaults,
   type AgentConfig,
   type AgentPromptContext,
   type HomesteadConfig,
@@ -91,11 +91,11 @@ export const launchIssues = Effect.fn("homestead/launch-issues")(function* (inpu
 
 export const requireAgentConfig = (
   agent: AgentConfig | undefined,
-): Effect.Effect<AgentConfig, UsageError> =>
+): Effect.Effect<AgentConfig & { readonly prompt: (ctx: AgentPromptContext) => string }, UsageError> =>
   agent === undefined
     ? Effect.fail(
         new UsageError({
           message: "[homestead] config has no `agent` block — launching an agent per issue needs one.",
         }),
       )
-    : Effect.succeed(agent);
+    : Effect.succeed(resolveAgentDefaults(agent));

@@ -6,6 +6,8 @@ import { capture, run } from "../process.ts";
 import {
   DEFAULT_ENV_FALLBACK,
   DEFAULT_ENV_SOURCE,
+} from "../defaults.ts";
+import {
   type HomesteadConfig,
   type Plan,
   type PortSpec,

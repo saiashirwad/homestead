@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
+import { Effect } from "effect";
 import { Schema } from "effect";
 import { validateConfigShape } from "./config.ts";
 import { ConfigDataSchema } from "./config-schema.ts";
+import { requireAgentConfig } from "./issue/provision.ts";
 import type { HomesteadConfig } from "./types.ts";
 
 const decodeConfigData = Schema.decodeUnknownSync(ConfigDataSchema);
@@ -36,4 +38,16 @@ test("validateConfigShape preserves function fields", () => {
   expect(merged.agent?.prompt).toBe(prompt);
   expect(merged.issues?.branch).toBe(branch);
   expect(merged.issues?.comment).toBe(comment);
+});
+
+test("requireAgentConfig applies default prompt when unset", async () => {
+  const agent = await Effect.runPromise(requireAgentConfig({ command: ["claude"] }));
+  expect(agent.prompt).toBeTypeOf("function");
+  expect(agent.command).toEqual(["claude"]);
+});
+
+test("requireAgentConfig preserves explicit prompt", async () => {
+  const prompt = () => "hello";
+  const agent = await Effect.runPromise(requireAgentConfig({ command: ["claude"], prompt }));
+  expect(agent.prompt).toBe(prompt);
 });

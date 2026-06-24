@@ -17,7 +17,7 @@ import { parseIssueArg } from "./issues.ts";
 import { launchIssues, requireAgentConfig } from "./issue/provision.ts";
 import { closeBranch, killBranch } from "./teardown.ts";
 import { resolveRepo, setupWorktree } from "./worktree/index.ts";
-import { DEFAULT_REVIEW_LABEL } from "./types.ts";
+import { DEFAULT_REVIEW_LABEL } from "./defaults.ts";
 import type { WorktreeOptions } from "./types.ts";
 
 const fail = (message: string) =>

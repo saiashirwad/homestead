@@ -1,5 +1,6 @@
 import { Effect } from "effect";
-import { DEFAULT_AGENT_COMMAND, DEFAULT_AGENT_READY_MARKER, type AgentConfig } from "../types.ts";
+import { DEFAULT_AGENT_COMMAND, DEFAULT_AGENT_READY_MARKER } from "../agent/defaults.ts";
+import type { AgentConfig } from "../types.ts";
 import { Herdr } from "./service.ts";
 
 export const BOOT_SETTLE_MS = 1000;

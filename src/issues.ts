@@ -1,7 +1,7 @@
 import { Effect, Schema } from "effect";
 import { ExternalCommandError, IssueRepoMismatch } from "./errors.ts";
 import { capture } from "./process.ts";
-import { WorkItemSchema, type WorkItem } from "./types.ts";
+import { WorkItemSchema, type WorkItem } from "./work-item.ts";
 
 export interface IssueRef {
   readonly number: number;

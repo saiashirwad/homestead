@@ -20,14 +20,16 @@ export {
   DEFAULT_AGENT_COMMAND,
   DEFAULT_AGENT_READY_MARKER,
   DEFAULT_CLAUDE_TRUST_PROMPT,
+  defaultAgentPrompt,
+  resolveAgentDefaults,
+} from "./src/agent/defaults.ts";
+export {
   DEFAULT_ENV_FALLBACK,
   DEFAULT_ENV_SOURCE,
   DEFAULT_REVIEW_LABEL,
   DEFAULT_SERVICE_TIMEOUT_MS,
-  defaultAgentPrompt,
-  resolveAgentDefaults,
-  WorkItemSchema,
-} from "./src/types.ts";
+} from "./src/defaults.ts";
+export { WorkItemSchema } from "./src/work-item.ts";
 export type {
   AgentConfig,
   AgentPromptContext,

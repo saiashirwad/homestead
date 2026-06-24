@@ -4,7 +4,7 @@
 
 Two worktrees of the same repo shouldn't share a database or fight over port 3000.
 
-homestead gives each one its own slice — ports, `.env`, setup — and opens it in [herdr](https://herdr.dev). Point it at GitHub issues and you get a worktree and coding agent per issue, side by side.
+homestead gives each one its own slice — ports, `.env`, setup — and opens it in [herdr](https://herdr.dev). Point it at GitHub issues and you get a worktree and coding agent per issue, side by side. For each issue, homestead boots the agent, waits for its REPL, and types a kickoff prompt once — then you drive the session from there.
 
 ```bash
 homestead worktree my-feature     # branch, provision, open
@@ -58,6 +58,23 @@ export default defineConfig({
 ```
 
 Re-running on an existing worktree is safe — it reuses the same ports.
+
+## Agent kickoff prompt
+
+`homestead issue` types one kickoff message into each freshly-booted agent. homestead picks a sensible default from the issue — you don't need to configure it.
+
+To override, add an optional `prompt` callback to `agent`:
+
+```ts
+agent: {
+  command: ["claude"],
+  surface: "worktree",
+  prompt: (ctx) =>
+    `Work GitHub issue #${ctx.item.number}: "${ctx.item.title}"\n${ctx.item.url}\n\nStart by reading the issue and proposing a plan.`,
+},
+```
+
+The callback receives `ctx.item` (number, URL, title), `ctx.branch`, `ctx.worktreeDir`, `ctx.repoName`, and `ctx.args`. Other agent options: `readyMarker`, `readyTimeoutMs`, `trustPrompt`. See [`homestead.config.example.ts`](./homestead.config.example.ts).
 
 ## Commands
 

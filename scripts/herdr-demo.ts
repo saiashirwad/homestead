@@ -10,7 +10,7 @@ import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { Console, Effect, Layer } from "effect";
 import { launchAndSeed, toSpec } from "../src/herdr/launch.ts";
 import { Herdr } from "../src/herdr/service.ts";
-import { resolveAgentDefaults } from "../src/types.ts";
+import { resolveAgentDefaults } from "../src/agent/defaults.ts";
 
 const AppLayer = Layer.provideMerge(Layer.effect(Herdr, Herdr.make), BunServices.layer);
 

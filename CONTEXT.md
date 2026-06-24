@@ -34,15 +34,10 @@ folder?"). homestead clears it — waits for it, confirms, and waits for it to v
 before looking for the ready marker.
 
 ### Kickoff prompt
-The single message homestead types into the freshly-booted agent. Built by a config
-`prompt(ctx)` callback from the issue, worktree, and CLI args; the default points the
-agent at the issue and starts the superpowers workflow. Fired exactly once — it is a
-detonator, not a conversation. Everything after is the human driving the session.
-
-### Superpowers workflow
-The interactive idea → shipped-code pipeline the kickoff prompt hands the issue to:
-brainstorm → spec → plan → subagent-driven build, with human approval gates at the spec,
-the plan, and the finish. homestead doesn't run it — it just starts it; the human owns it.
+The single message homestead types into the freshly-booted agent. Built from the issue,
+worktree, and CLI args — homestead applies a default automatically. Override with an
+optional config `prompt(ctx)` callback if you want a custom kickoff. Fired exactly once;
+everything after is the human driving the session.
 
 ### AgentConfig
 The per-project description of how to launch an agent: the launch argv (`command`), the

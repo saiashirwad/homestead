@@ -3,7 +3,7 @@ import { Effect } from "effect";
 import { launchAndSeed, toSpec } from "./launch.ts";
 import { Herdr } from "./service.ts";
 import { HerdrTest, HerdrTestHandle } from "./test.ts";
-import { resolveAgentDefaults } from "../types.ts";
+import { resolveAgentDefaults } from "../agent/defaults.ts";
 
 test("toSpec applies mechanical agent defaults", () => {
   const spec = toSpec({});
@@ -25,9 +25,10 @@ test("toSpec preserves explicit trust prompt", () => {
   expect(spec.trustPrompt).toEqual({ marker: "allow?", confirm: ["y", "Enter"] });
 });
 
-test("resolveAgentDefaults applies Claude trust gate", () => {
+test("resolveAgentDefaults applies Claude trust gate and default prompt", () => {
   const agent = resolveAgentDefaults({});
   expect(agent.trustPrompt).toEqual({ marker: "trust this folder", confirm: ["Enter"] });
+  expect(agent.command).toEqual(["claude"]);
   expect(agent.prompt).toBeTypeOf("function");
 });
 

@@ -28,10 +28,8 @@ export default defineConfig({
   },
 
   // homestead boots an interactive Claude in a herdr pane per issue, waits for the
-  // REPL, and types a kickoff prompt once — then steps away. The human drives the
-  // superpowers brainstorm → plan → build workflow from there, approving at each
-  // gate. The default kickoff prompt already points Claude at the issue and starts
-  // superpowers; override `prompt: (ctx) => ...` to customise.
+  // REPL, and types a kickoff prompt once — then steps away. Override `prompt` only
+  // if you want a custom kickoff message.
   agent: {
     command: ["claude"],
     surface: "worktree", // nest each agent under homestead's workspace in herdr
