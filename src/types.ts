@@ -106,6 +106,15 @@ export interface HomesteadConfig {
   readonly afterSetup?:
     | ((ctx: WorktreeContext & { readonly plan: Plan }) => Effect.Effect<void, never, HomesteadServices>)
     | undefined;
+  readonly afterLaunch?:
+    | ((ctx: HomesteadContext & { readonly paneId: string }) => Effect.Effect<void, never, HomesteadServices>)
+    | undefined;
+  readonly beforeTeardown?:
+    | ((ctx: HomesteadContext & { readonly verb: "kill" | "close" | "complete"; readonly tracked: boolean }) => Effect.Effect<void, never, HomesteadServices>)
+    | undefined;
+  readonly afterTeardown?:
+    | ((ctx: HomesteadContext & { readonly verb: "kill" | "close" | "complete"; readonly reviewLabel?: string }) => Effect.Effect<void, never, HomesteadServices>)
+    | undefined;
 }
 
 export interface WorktreeOptions {

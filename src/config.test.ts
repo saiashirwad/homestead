@@ -40,6 +40,17 @@ test("validateConfigShape preserves function fields", () => {
   expect(merged.issues?.comment).toBe(comment);
 });
 
+test("lifecycle hooks survive validateConfigShape untouched", () => {
+  const afterLaunch = () => Effect.void;
+  const beforeTeardown = () => Effect.void;
+  const afterTeardown = () => Effect.void;
+  const config: HomesteadConfig = { afterLaunch, beforeTeardown, afterTeardown };
+  const merged = validateConfigShape(config);
+  expect(merged.afterLaunch).toBe(afterLaunch);
+  expect(merged.beforeTeardown).toBe(beforeTeardown);
+  expect(merged.afterTeardown).toBe(afterTeardown);
+});
+
 test("validateConfigShape preserves pr block (checks + prompt overrides)", () => {
   const reviewPrompt = () => "review";
   const workPrompt = () => "work";
