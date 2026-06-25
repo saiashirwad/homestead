@@ -25,6 +25,7 @@ export type {
 } from "./config-schema.ts";
 
 export type { WorkItem } from "./work-item.ts";
+export type { HomesteadContext } from "./context.ts";
 
 export type HomesteadServices =
   | FileSystem.FileSystem
