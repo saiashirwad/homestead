@@ -60,13 +60,13 @@ export const AGENT_DATA_FIELDS = [
 
 export const IssuesConfigDataSchema = Schema.Struct({
   label: Schema.optional(Schema.String),
-  assign: Schema.optional(Schema.Boolean),
+  assign: Schema.optional(Schema.Union([Schema.Boolean, Schema.String])),
   comment: Schema.optional(Schema.Boolean),
   reviewLabel: Schema.optional(Schema.String),
   labelColor: Schema.optional(Schema.String),
 });
 export type IssuesConfigData = typeof IssuesConfigDataSchema.Type;
-export const ISSUES_SCALAR_FIELDS = ["label", "assign", "reviewLabel", "labelColor"] as const satisfies ReadonlyArray<
+export const ISSUES_SCALAR_FIELDS = ["label", "reviewLabel", "labelColor"] as const satisfies ReadonlyArray<
   keyof IssuesConfigData
 >;
 

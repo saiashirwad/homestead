@@ -103,9 +103,9 @@ export interface IssuesConfig {
   readonly closeComment?: boolean | ((ctx: HomesteadContext & { host: string; }) => string) | undefined;
   readonly closeReason?: "completed" | "not planned" | ((ctx: HomesteadContext) => "completed" | "not planned") | undefined;
   readonly labelColor?: string | ((ctx: { label: string; kind: "wip" | "review"; }) => string) | undefined;
-  readonly label?: string | undefined;
-  readonly assign?: boolean | undefined;
-  readonly reviewLabel?: string | undefined;
+  readonly label?: string | ((item: WorkItem) => string) | undefined;
+  readonly assign?: boolean | string | ((item: WorkItem) => string | ReadonlyArray<string>) | undefined;
+  readonly reviewLabel?: string | ((item: WorkItem) => string) | undefined;
 }
 
 export interface PrConfig {

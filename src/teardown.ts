@@ -4,7 +4,7 @@ import { Herdr } from "./herdr/service.ts";
 import { capture, runExit } from "./process.ts";
 import { refExists } from "./worktree/base-ref.ts";
 import { loadTrackingState, markCompleted, markFinished, markStopped } from "./tracking.ts";
-import type { HomesteadServices } from "./types.ts";
+import type { HomesteadServices, IssuesConfig } from "./types.ts";
 
 // `homestead kill` / `homestead close` — the inverse of `issue`/`worktree`.
 // Branch args are git branch names (issue flow uses `String(item.number)` as the branch).
@@ -106,10 +106,11 @@ export const closeBranch = Effect.fn("homestead/close-branch")(function* (
   repoName: string,
   branch: string,
   reviewLabel: string,
+  issues?: IssuesConfig,
 ) {
   yield* Console.log(`\n▸ Closing '${branch}'`);
 
-  yield* teardownWorktree(primaryRoot, branch, markFinished(repoName, branch, reviewLabel));
+  yield* teardownWorktree(primaryRoot, branch, markFinished(repoName, branch, reviewLabel, issues));
 
   yield* Console.log(`  ✓ closed '${branch}' (branch kept, issue → ${reviewLabel})`);
 });

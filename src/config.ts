@@ -1,6 +1,6 @@
 import { Cause, Effect, Exit, FileSystem, Option, Path, Schema } from "effect";
 import { pathToFileURL } from "node:url";
-import { ConfigDataSchema, type ConfigData, AGENT_DATA_FIELDS, ENV_DATA_FIELDS, ISSUES_SCALAR_FIELDS, PR_DATA_FIELDS } from "./config-schema.ts";
+import { ConfigDataSchema, type ConfigData, AGENT_DATA_FIELDS, ENV_DATA_FIELDS, PR_DATA_FIELDS } from "./config-schema.ts";
 import { ConfigInvalid, ConfigNotFound } from "./errors.ts";
 import type { HomesteadConfig } from "./types.ts";
 
@@ -53,7 +53,11 @@ const toConfigData = (config: HomesteadConfig): ConfigData => ({
     config.issues === undefined
       ? undefined
       : {
-          ...pickDefined(config.issues, ["label", "assign", "reviewLabel"] as const),
+          ...(typeof config.issues.label === "string" ? { label: config.issues.label } : {}),
+          ...(typeof config.issues.reviewLabel === "string" ? { reviewLabel: config.issues.reviewLabel } : {}),
+          ...(typeof config.issues.assign === "boolean" || typeof config.issues.assign === "string"
+            ? { assign: config.issues.assign }
+            : {}),
           ...(typeof config.issues.comment === "boolean" ? { comment: config.issues.comment } : {}),
           ...(typeof config.issues.labelColor === "string" ? { labelColor: config.issues.labelColor } : {}),
         },
@@ -77,6 +81,9 @@ const mergeValidatedConfig = (config: HomesteadConfig, data: ConfigData): Homest
     reviewComment: config.issues?.reviewComment,
     closeComment: config.issues?.closeComment,
     closeReason: config.issues?.closeReason,
+    label: config.issues?.label ?? data.issues?.label,
+    reviewLabel: config.issues?.reviewLabel ?? data.issues?.reviewLabel,
+    assign: config.issues?.assign ?? data.issues?.assign,
     labelColor: config.issues?.labelColor ?? data.issues?.labelColor,
   }),
   pr: mergeOptionalSection(config.pr, data.pr, {

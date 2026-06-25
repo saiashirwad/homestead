@@ -1,13 +1,17 @@
 import { expect, test } from "bun:test";
 import { Effect, Schema } from "effect";
 import {
+  resolveAssignees,
   resolveCloseComment,
   resolveCloseReason,
+  resolveLabel,
   resolveLabelColor,
   resolveReviewComment,
   resolveStopComment,
   TrackingStateSchema,
 } from "./tracking.ts";
+
+const item = { number: 7, url: "u", title: "t" } as const;
 
 test("TrackingState decodes legacy state without title/worktreeDir", () => {
   const decode = Schema.decodeUnknownSync(TrackingStateSchema);
@@ -73,6 +77,19 @@ test("closeReason default is completed", () => {
   expect(resolveCloseReason(undefined, {} as any)).toBe("completed");
   expect(resolveCloseReason("not planned", {} as any)).toBe("not planned");
   expect(resolveCloseReason((_: any) => "not planned", {} as any)).toBe("not planned");
+});
+
+test("resolveLabel passes string through and calls function", () => {
+  expect(resolveLabel("agent:wip", item)).toBe("agent:wip");
+  expect(resolveLabel((i: any) => `area:${i.number}`, item)).toBe("area:7");
+  expect(resolveLabel(undefined, item)).toBeUndefined();
+});
+
+test("resolveAssignees normalizes to logins", () => {
+  expect(resolveAssignees(true, item)).toEqual(["@me"]);
+  expect(resolveAssignees(false, item)).toEqual([]);
+  expect(resolveAssignees("octocat", item)).toEqual(["octocat"]);
+  expect(resolveAssignees((i: any) => [`u${i.number}`, "v"], item)).toEqual(["u7", "v"]);
 });
 
 test("labelColor default is 1D76DB", () => {

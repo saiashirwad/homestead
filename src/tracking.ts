@@ -11,6 +11,7 @@ export const TrackingStateSchema = Schema.Struct({
   title: Schema.optional(Schema.String),
   worktreeDir: Schema.optional(Schema.String),
   label: Schema.optional(Schema.String),
+  assignees: Schema.optional(Schema.Array(Schema.String)),
   assigned: Schema.optional(Schema.Boolean),
   commented: Schema.optional(Schema.Boolean),
 });
@@ -25,6 +26,25 @@ export const resolveLabelColor = (
   cfg: string | ((ctx: { label: string; kind: "wip" | "review" }) => string) | undefined,
   ctx: { label: string; kind: "wip" | "review" },
 ): string => (typeof cfg === "function" ? cfg(ctx) : (cfg ?? "1D76DB"));
+
+export const resolveLabel = (
+  cfg: string | ((item: WorkItem) => string) | undefined,
+  item: WorkItem,
+): string | undefined => {
+  const v = typeof cfg === "function" ? cfg(item) : cfg;
+  const t = v?.trim();
+  return t === undefined || t === "" ? undefined : t;
+};
+
+export const resolveAssignees = (
+  cfg: boolean | string | ((item: WorkItem) => string | ReadonlyArray<string>) | undefined,
+  item: WorkItem,
+): ReadonlyArray<string> => {
+  if (cfg === undefined || cfg === false) return [];
+  if (cfg === true) return ["@me"];
+  const v = typeof cfg === "function" ? cfg(item) : cfg;
+  return typeof v === "string" ? [v] : [...v];
+};
 
 const stateDir = (path: Path.Path, repoName: string) =>
   path.join(os.homedir(), ".homestead", "state", slugify(repoName));
@@ -96,9 +116,10 @@ export const markStarted = Effect.fn("homestead/mark-started")(function* (
 ) {
   if (issues === undefined) return;
 
-  const label = issues.label?.trim();
-  const wantLabel = label !== undefined && label !== "";
-  const wantAssign = issues.assign === true;
+  const label = resolveLabel(issues.label, item);
+  const assignees = resolveAssignees(issues.assign, item);
+  const wantLabel = label !== undefined;
+  const wantAssign = assignees.length > 0;
   const wantComment = issues.comment !== undefined && issues.comment !== false;
   if (!wantLabel && !wantAssign && !wantComment) return;
 
@@ -119,7 +140,9 @@ export const markStarted = Effect.fn("homestead/mark-started")(function* (
     yield* gh("gh issue edit --add-label", ["issue", "edit", ref, "--add-label", label]);
   }
   if (wantAssign) {
-    yield* gh("gh issue edit --add-assignee", ["issue", "edit", ref, "--add-assignee", "@me"]);
+    for (const login of assignees) {
+      yield* gh("gh issue edit --add-assignee", ["issue", "edit", ref, "--add-assignee", login]);
+    }
   }
   let commented = false;
   if (wantComment) {
@@ -138,7 +161,7 @@ export const markStarted = Effect.fn("homestead/mark-started")(function* (
     title: item.title,
     worktreeDir,
     ...(wantLabel ? { label } : {}),
-    ...(wantAssign ? { assigned: true } : {}),
+    ...(wantAssign ? { assignees: [...assignees] } : {}),
     ...(commented ? { commented: true } : {}),
   };
   const encoded = yield* Schema.encodeUnknownEffect(TrackingStateSchema)(state).pipe(Effect.orDie);
@@ -172,7 +195,11 @@ export const markStopped = Effect.fn("homestead/mark-stopped")(function* (
   if (state.value.label !== undefined) {
     yield* gh("gh issue edit --remove-label", ["issue", "edit", ref, "--remove-label", state.value.label]);
   }
-  if (state.value.assigned === true) {
+  if (state.value.assignees !== undefined) {
+    for (const login of state.value.assignees) {
+      yield* gh("gh issue edit --remove-assignee", ["issue", "edit", ref, "--remove-assignee", login]);
+    }
+  } else if (state.value.assigned === true) {
     yield* gh("gh issue edit --remove-assignee", ["issue", "edit", ref, "--remove-assignee", "@me"]);
   }
   if (state.value.commented === true) {
@@ -210,16 +237,22 @@ export const markFinished = Effect.fn("homestead/mark-finished")(function* (
 
   const ref = String(state.value.number);
   const host = os.hostname();
+  const item: WorkItem = {
+    number: state.value.number,
+    url: state.value.url,
+    title: state.value.title ?? "",
+  };
+  const resolvedReviewLabel = resolveLabel(issues?.reviewLabel, item) ?? reviewLabel;
   if (state.value.label !== undefined) {
     yield* gh("gh label create", [
       "label",
       "create",
-      reviewLabel,
+      resolvedReviewLabel,
       "--color",
-      resolveLabelColor(issues?.labelColor, { label: reviewLabel, kind: "review" }),
+      resolveLabelColor(issues?.labelColor, { label: resolvedReviewLabel, kind: "review" }),
       "--force",
     ]);
-    yield* gh("gh issue edit --add-label", ["issue", "edit", ref, "--add-label", reviewLabel]);
+    yield* gh("gh issue edit --add-label", ["issue", "edit", ref, "--add-label", resolvedReviewLabel]);
     yield* gh("gh issue edit --remove-label", ["issue", "edit", ref, "--remove-label", state.value.label]);
   }
   const ctx: StopCtx = {

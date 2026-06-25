@@ -164,10 +164,17 @@ const closeCommand = Command.make(
     Effect.gen(function* () {
       const repo = yield* resolveRepo();
       const config = yield* loadConfigOrUndefined(repo.primaryRoot);
-      const reviewLabel = config?.issues?.reviewLabel ?? DEFAULT_REVIEW_LABEL;
-      yield* Effect.forEach(branches, (branch) => closeBranch(repo.primaryRoot, repo.repoName, branch, reviewLabel), {
-        discard: true,
-      });
+      const reviewLabel =
+        typeof config?.issues?.reviewLabel === "string"
+          ? config.issues.reviewLabel
+          : DEFAULT_REVIEW_LABEL;
+      yield* Effect.forEach(
+        branches,
+        (branch) => closeBranch(repo.primaryRoot, repo.repoName, branch, reviewLabel, config?.issues),
+        {
+          discard: true,
+        },
+      );
       yield* Console.log(`\n✅ closed ${branches.length}: ${branches.join(", ")}`);
     }),
 ).pipe(Command.withDescription("finalize: remove worktree + herdr surface, keep the branch, issue → review"));

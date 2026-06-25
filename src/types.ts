@@ -65,7 +65,10 @@ export interface TrackingContext extends WorkItem {
   readonly host: string;
 }
 
-export interface IssuesConfig extends Omit<IssuesConfigData, "comment" | "labelColor"> {
+export interface IssuesConfig extends Omit<IssuesConfigData, "comment" | "labelColor" | "label" | "reviewLabel" | "assign"> {
+  readonly label?: string | ((item: WorkItem) => string) | undefined;
+  readonly reviewLabel?: string | ((item: WorkItem) => string) | undefined;
+  readonly assign?: boolean | string | ((item: WorkItem) => string | ReadonlyArray<string>) | undefined;
   readonly branch?: ((item: WorkItem) => string) | undefined;
   readonly comment?: boolean | ((ctx: TrackingContext) => string);
   readonly stopComment?: boolean | ((ctx: HomesteadContext & { host: string }) => string);
