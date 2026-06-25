@@ -3,8 +3,27 @@ import { worktreePathForBranch } from "./git/porcelain.ts";
 import { Herdr } from "./herdr/service.ts";
 import { capture, runExit } from "./process.ts";
 import { refExists } from "./worktree/base-ref.ts";
+import { makeContext } from "./context.ts";
 import { loadTrackingState, markCompleted, markFinished, markStopped } from "./tracking.ts";
-import type { HomesteadServices, IssuesConfig } from "./types.ts";
+import type { HomesteadConfig, HomesteadContext, HomesteadServices } from "./types.ts";
+
+export const runBeforeTeardown = (
+  hook: HomesteadConfig["beforeTeardown"],
+  ctx: HomesteadContext,
+  verb: "kill" | "close" | "complete",
+  tracked: boolean,
+): Effect.Effect<void, never, HomesteadServices> =>
+  hook === undefined ? Effect.void : hook({ ...ctx, verb, tracked });
+
+export const runAfterTeardown = (
+  hook: HomesteadConfig["afterTeardown"],
+  ctx: HomesteadContext,
+  verb: "kill" | "close" | "complete",
+  reviewLabel?: string,
+): Effect.Effect<void, never, HomesteadServices> =>
+  hook === undefined
+    ? Effect.void
+    : hook(reviewLabel === undefined ? { ...ctx, verb } : { ...ctx, verb, reviewLabel });
 
 // `homestead kill` / `homestead close` — the inverse of `issue`/`worktree`.
 // Branch args are git branch names (issue flow uses `String(item.number)` as the branch).
@@ -76,6 +95,7 @@ export const killBranch = Effect.fn("homestead/kill-branch")(function* (
   repoName: string,
   branch: string,
   keepRemote = false,
+  config?: HomesteadConfig,
 ) {
   yield* Console.log(`\n▸ Killing '${branch}'`);
 
@@ -84,8 +104,11 @@ export const killBranch = Effect.fn("homestead/kill-branch")(function* (
   // never does — so gating here prevents `kill` on a same-repo PR review from
   // deleting the PR author's remote head branch.
   const tracked = yield* loadTrackingState(repoName, branch);
+  const ctx = makeContext({ repoName, slug: branch, branch, worktreeDir: "" });
 
-  yield* teardownWorktree(primaryRoot, branch, markStopped(repoName, branch));
+  yield* runBeforeTeardown(config?.beforeTeardown, ctx, "kill", Option.isSome(tracked));
+
+  yield* teardownWorktree(primaryRoot, branch, markStopped(repoName, branch, config?.issues));
 
   if (yield* refExists(primaryRoot, `refs/heads/${branch}`)) {
     const code = yield* runExit("git", ["branch", "-D", branch], { cwd: primaryRoot });
@@ -98,6 +121,7 @@ export const killBranch = Effect.fn("homestead/kill-branch")(function* (
 
   yield* deleteRemoteBranch(primaryRoot, branch, tracked, keepRemote);
 
+  yield* runAfterTeardown(config?.afterTeardown, ctx, "kill");
   yield* Console.log(`  ✓ killed '${branch}'`);
 });
 
@@ -106,12 +130,18 @@ export const closeBranch = Effect.fn("homestead/close-branch")(function* (
   repoName: string,
   branch: string,
   reviewLabel: string,
-  issues?: IssuesConfig,
+  config?: HomesteadConfig,
 ) {
   yield* Console.log(`\n▸ Closing '${branch}'`);
 
-  yield* teardownWorktree(primaryRoot, branch, markFinished(repoName, branch, reviewLabel, issues));
+  const tracked = Option.isSome(yield* loadTrackingState(repoName, branch));
+  const ctx = makeContext({ repoName, slug: branch, branch, worktreeDir: "" });
 
+  yield* runBeforeTeardown(config?.beforeTeardown, ctx, "close", tracked);
+
+  yield* teardownWorktree(primaryRoot, branch, markFinished(repoName, branch, reviewLabel, config?.issues));
+
+  yield* runAfterTeardown(config?.afterTeardown, ctx, "close", reviewLabel);
   yield* Console.log(`  ✓ closed '${branch}' (branch kept, issue → ${reviewLabel})`);
 });
 
@@ -120,6 +150,7 @@ export const completeBranch = Effect.fn("homestead/complete-branch")(function* (
   repoName: string,
   branch: string,
   keepRemote = false,
+  config?: HomesteadConfig,
 ) {
   yield* Console.log(`\n▸ Completing '${branch}'`);
 
@@ -128,8 +159,11 @@ export const completeBranch = Effect.fn("homestead/complete-branch")(function* (
   // does — so gating here prevents `complete` on a same-repo PR review from
   // deleting the PR author's remote head branch.
   const tracked = yield* loadTrackingState(repoName, branch);
+  const ctx = makeContext({ repoName, slug: branch, branch, worktreeDir: "" });
 
-  yield* teardownWorktree(primaryRoot, branch, markCompleted(repoName, branch));
+  yield* runBeforeTeardown(config?.beforeTeardown, ctx, "complete", Option.isSome(tracked));
+
+  yield* teardownWorktree(primaryRoot, branch, markCompleted(repoName, branch, config?.issues));
 
   if (yield* refExists(primaryRoot, `refs/heads/${branch}`)) {
     const code = yield* runExit("git", ["branch", "-D", branch], { cwd: primaryRoot });
@@ -142,5 +176,6 @@ export const completeBranch = Effect.fn("homestead/complete-branch")(function* (
 
   yield* deleteRemoteBranch(primaryRoot, branch, tracked, keepRemote);
 
+  yield* runAfterTeardown(config?.afterTeardown, ctx, "complete");
   yield* Console.log(`  ✓ completed '${branch}' (issue closed, branch removed)`);
 });
