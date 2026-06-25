@@ -29,6 +29,8 @@ branch=$(git rev-parse --abbrev-ref HEAD)
 npm whoami >/dev/null 2>&1 || die "not logged in to npm — run 'npm login'"
 
 # 2. Verify before burning a version number.
+step "config-types up to date"
+bun run gen:config-types --check
 step "typecheck"
 bun run typecheck
 step "test"
@@ -47,6 +49,16 @@ fi
 step "version bump ($bump)"
 new=$(npm version "$bump" -m "release: v%s")
 printf '  -> %s\n' "$new"
+
+# Re-stamp the generated config types with the new version and fold the change
+# into the version commit (and its tag) so the published artifact is accurate.
+step "re-stamp config types"
+bun run gen:config-types
+if [ -n "$(git status --porcelain src/homestead.config.types.d.ts)" ]; then
+  git add src/homestead.config.types.d.ts
+  git commit --amend --no-edit
+  git tag -f "$new" -m "release: $new"
+fi
 
 # 4. Publish (npm runs `prepare`; OTP prompts unless NPM_OTP is set).
 step "publish"

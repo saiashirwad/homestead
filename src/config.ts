@@ -6,13 +6,6 @@ import type { HomesteadConfig } from "./types.ts";
 
 const CONFIG_BASENAMES = ["homestead.config.ts", "homestead.config.js", "homestead.config.mjs"] as const;
 
-let registered: HomesteadConfig | undefined;
-
-export const defineConfig = (config: HomesteadConfig): HomesteadConfig => {
-  registered = config;
-  return config;
-};
-
 const isConfigObject = (value: unknown): value is HomesteadConfig =>
   typeof value === "object" && value !== null;
 
@@ -120,17 +113,16 @@ export const loadConfig = Effect.fn("homestead/load-config")(function* (startDir
     for (const base of CONFIG_BASENAMES) {
       const candidate = path.join(dir, base);
       if (yield* fs.exists(candidate)) {
-        registered = undefined;
         const mod: unknown = yield* Effect.tryPromise({
           try: () => import(pathToFileURL(candidate).href),
           catch: (cause) =>
             new ConfigInvalid({ path: candidate, reason: `failed to import: ${String(cause)}` }),
         });
-        const config = registered ?? defaultExport(mod);
+        const config = defaultExport(mod);
         if (config === undefined) {
           return yield* new ConfigInvalid({
             path: candidate,
-            reason: "exported no config — use `export default defineConfig({ ... })` or `export default { ... }`",
+            reason: "exported no config — use `export default { ... } satisfies HomesteadConfig`",
           });
         }
         return yield* validateConfigData(config);

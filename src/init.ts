@@ -1,8 +1,12 @@
 import { Console, Effect, FileSystem, Path } from "effect";
 
-const STARTER_CONFIG = `import { defineConfig } from "homestead";
+// The starter config types itself against the local `homestead.config.types.d.ts`
+// (written below) rather than importing from "homestead", so a consumer repo needs
+// NOTHING installed — no homestead dependency, no effect, no bloat. The CLI loads
+// the config by reading its default export.
+const STARTER_CONFIG = `import type { HomesteadConfig } from "./homestead.config.types";
 
-export default defineConfig({
+export default {
   // Per-worktree ports (omit if this repo isn't a server):
   // ports: [{ key: "PORT", base: 3000 }],
 
@@ -14,8 +18,12 @@ export default defineConfig({
     command: ["claude"],
     surface: "worktree",
   },
-});
+} satisfies HomesteadConfig;
 `;
+
+// The generated, effect-free types ship inside the package (src/ is in "files").
+const BUNDLED_CONFIG_TYPES = `${import.meta.dirname}/homestead.config.types.d.ts`;
+const CONFIG_TYPES_BASENAME = "homestead.config.types.d.ts";
 
 // Bundled Claude Code skills live next to this file (src/skills/*), so they
 // ship with the package (src/ is already in package.json "files").
@@ -81,6 +89,17 @@ export const initRepo = Effect.fn("homestead/init")(function* (primaryRoot: stri
   } else {
     yield* fs.writeFileString(configPath, STARTER_CONFIG).pipe(Effect.orDie);
     yield* Console.log(`  ✓ wrote starter homestead.config.ts`);
+  }
+
+  // Always (re)write the generated types so they track the installed homestead
+  // version — this file is owned by homestead, not the user, so clobbering is
+  // intended (mirrors how an upgrade should refresh the type surface).
+  const typesPath = path.join(primaryRoot, CONFIG_TYPES_BASENAME);
+  const typesBundleExists = yield* fs.exists(BUNDLED_CONFIG_TYPES).pipe(Effect.orDie);
+  if (typesBundleExists) {
+    const types = yield* fs.readFileString(BUNDLED_CONFIG_TYPES).pipe(Effect.orDie);
+    yield* fs.writeFileString(typesPath, types).pipe(Effect.orDie);
+    yield* Console.log(`  ✓ wrote ${CONFIG_TYPES_BASENAME}`);
   }
 
   yield* installSkills(primaryRoot);

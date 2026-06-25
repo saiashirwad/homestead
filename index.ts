@@ -4,7 +4,7 @@
 // provisioner in your own Effect programs. The CLI lives in src/cli.ts
 // (bin: `homestead`).
 
-export { defineConfig, loadConfig, loadConfigOrUndefined } from "./src/config.ts";
+export { loadConfig, loadConfigOrUndefined } from "./src/config.ts";
 export { setupWorktree } from "./src/worktree/index.ts";
 export { resolveIssue } from "./src/issues.ts";
 export { launchAgent } from "./src/herdr/agent.ts";

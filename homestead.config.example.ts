@@ -12,7 +12,9 @@
 //   homestead close 21          # finalize: keep the branch, issue → review
 //   homestead kill my-feature
 
-import { defineConfig } from "homestead";
+// Types come from the generated `homestead.config.types.d.ts` that `homestead
+// init` drops next to this file — so a consumer repo needs nothing installed.
+import type { HomesteadConfig } from "./homestead.config.types";
 
 // Swap the db-name segment of a Postgres DSN, preserving creds/host/?query —
 // e.g. ".../myapp" + "myapp_my_feature" -> ".../myapp_my_feature".
@@ -26,7 +28,7 @@ const withDbName = (raw: string, dbName: string): string => {
 
 const DEFAULT_DB_URL = "postgres://postgres:postgres@localhost:5432/myapp";
 
-export default defineConfig({
+export default {
   // Where new worktrees land (default: ~/worktrees/<repo>/<slug>).
   worktreeDir: ({ repoName, slug }) => `${process.env.HOME}/worktrees/${repoName}/${slug}`,
 
@@ -92,4 +94,4 @@ export default defineConfig({
     // reviewPrompt: ({ pr, checks }) => `Review PR #${pr.number} (${pr.url}).`,
     // workPrompt: ({ pr }) => `Continue PR #${pr.number} (${pr.url}).`,
   },
-});
+} satisfies HomesteadConfig;

@@ -10,9 +10,9 @@
 //   homestead close 2                     # finalize: tear down, keep the branch, issue → review
 //   homestead kill my-feature
 
-import { defineConfig } from "homestead";
+import type { HomesteadConfig } from "./src/types.ts";
 
-export default defineConfig({
+export default {
   // No ports / env / services — a CLI worktree needs none of them.
 
   // Vendor Effect's source (the `prepare` hook fires on install) and get deps.
@@ -34,4 +34,4 @@ export default defineConfig({
     command: ["claude"],
     surface: "worktree", // nest each agent under homestead's workspace in herdr
   },
-});
+} satisfies HomesteadConfig;

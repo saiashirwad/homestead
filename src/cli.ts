@@ -242,7 +242,7 @@ const program = Command.run(homestead, { version: pkg.version });
 program.pipe(
   Effect.catchTags({
     ConfigNotFound: (error: ConfigNotFound) =>
-      fail(`[homestead] ${error.detail}\n  Add a homestead.config.ts at your repo root: export default defineConfig({ ... })`),
+      fail(`[homestead] ${error.detail}\n  Add a homestead.config.ts at your repo root: export default { ... } satisfies HomesteadConfig`),
     ConfigInvalid: (error: ConfigInvalid) => fail(`[homestead] invalid config at ${error.path}: ${error.reason}`),
     ExternalCommandError: (error: ExternalCommandError) =>
       fail(`[homestead] ${error.command} failed: ${error.detail}`),

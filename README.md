@@ -44,10 +44,14 @@ Need a fuller starting point? Copy from [`homestead.config.example.ts`](./homest
 
 ## Config sketch
 
-```ts
-import { defineConfig } from "homestead";
+`homestead init` writes a `homestead.config.types.d.ts` next to your config, so the
+config is fully typed with **nothing installed** — no `homestead` dependency, no
+`effect`, no bloat. Just a typed default export:
 
-export default defineConfig({
+```ts
+import type { HomesteadConfig } from "./homestead.config.types";
+
+export default {
   ports: [{ key: "PORT", base: 3000 }],
   env: {
     source: ".env",
@@ -57,8 +61,11 @@ export default defineConfig({
   },
   setup: [{ label: "install", run: ["bun", "install"] }],
   agent: { command: ["claude"], surface: "worktree" },
-});
+} satisfies HomesteadConfig;
 ```
+
+The generated types track the homestead version you ran `init` with — re-run
+`homestead init` after upgrading to refresh them.
 
 Re-running on an existing worktree is safe — it reuses the same ports.
 
