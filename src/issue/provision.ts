@@ -1,4 +1,5 @@
 import { Console, Effect } from "effect";
+import { emit } from "../events.ts";
 import { UsageError } from "../errors.ts";
 import { launchAgent } from "../herdr/agent.ts";
 import { explainTimeout } from "../herdr/errors.ts";
@@ -84,11 +85,7 @@ export const launchIssues = Effect.fn("homestead/launch-issues")(function* (inpu
   );
 
   const ok = launched.filter(Boolean).length;
-  yield* Console.log(
-    ok === items.length
-      ? `\n✅ ${ok} agent(s) launched. Switch into the issue-* workspaces to drive them.`
-      : `\n✅ ${ok}/${items.length} agent(s) launched (${items.length - ok} skipped). Switch into the issue-* workspaces to drive them.`,
-  );
+  yield* emit(config.onEvent, { type: "issues.summary", launched: ok, total: items.length });
 });
 
 export const requireAgentConfig = (

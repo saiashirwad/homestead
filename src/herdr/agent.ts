@@ -1,5 +1,6 @@
-import { Console, Effect } from "effect";
+import { Effect } from "effect";
 import { makeContext } from "../context.ts";
+import { emit } from "../events.ts";
 import type {
   AgentConfig,
   AgentPromptContext,
@@ -35,7 +36,12 @@ export const launchAgent = Effect.fn("homestead/launch-agent")(function* (input:
   const surface = agent.surface ?? "worktree";
   const herdr = yield* Herdr;
 
-  yield* Console.log(`\n▸ Launching ${spec.command} for issue #${item.number} in ${plan.targetDir}`);
+  yield* emit(input.config.onEvent, {
+    type: "agent.launching",
+    item,
+    command: [spec.command],
+    worktreeDir: plan.targetDir,
+  });
   const paneId = yield* herdr.createSurface(surface, plan.targetDir, `issue-${item.number}`);
 
   const prompt = agent.prompt({ item, branch, worktreeDir: plan.targetDir, repoName, args });
@@ -48,5 +54,11 @@ export const launchAgent = Effect.fn("homestead/launch-agent")(function* (input:
     paneId,
   );
 
-  yield* Console.log(`  ✓ #${item.number}: ${spec.command} launched in herdr pane ${paneId} — switch in to drive it`);
+  yield* emit(input.config.onEvent, {
+    type: "agent.launched",
+    item,
+    command: [spec.command],
+    paneId,
+    worktreeDir: plan.targetDir,
+  });
 });

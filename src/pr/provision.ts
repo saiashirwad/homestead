@@ -1,4 +1,5 @@
-import { Console, Effect } from "effect";
+import { Effect } from "effect";
+import { emit } from "../events.ts";
 import { UsageError } from "../errors.ts";
 import { Herdr } from "../herdr/service.ts";
 import { launchAndSeed, toSpec } from "../herdr/launch.ts";
@@ -32,9 +33,12 @@ export const launchPr = Effect.fn("homestead/launch-pr")(function* (input: Launc
     });
   }
 
-  yield* Console.log(
-    `\n▸ ${mode === "review" ? "Reviewing" : "Continuing"} PR #${pr.number}: ${pr.title}`,
-  );
+  yield* emit(config.onEvent, {
+    type: "pr.launching",
+    pr,
+    mode,
+    branch: checkout.branch,
+  });
 
   yield* ensureLocalBranch(repo.primaryRoot, pr, checkout);
 
@@ -49,8 +53,11 @@ export const launchPr = Effect.fn("homestead/launch-pr")(function* (input: Launc
   const paneId = yield* herdr.createSurface(surface, plan.targetDir, `pr-${pr.number}`);
   yield* launchAndSeed(paneId, toSpec(agent), prompt, { readyTimeoutMs: agent.readyTimeoutMs });
 
-  yield* Console.log(
-    `  ✓ PR #${pr.number} ready on \`${checkout.branch}\` in herdr pane ${paneId} — switch in to drive it.\n` +
-      `    Tear down with: homestead ${mode === "review" ? "kill" : "close"} ${checkout.branch}`,
-  );
+  yield* emit(config.onEvent, {
+    type: "pr.launched",
+    pr,
+    mode,
+    branch: checkout.branch,
+    paneId,
+  });
 });
