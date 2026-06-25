@@ -13,6 +13,16 @@ import type {
 import { Herdr } from "./service.ts";
 import { launchAndSeed, toSpec } from "./launch.ts";
 
+type SurfaceCtx = HomesteadContext & { readonly kind: "issue" | "pr" };
+
+export const resolveSurfaceLabel = (
+  cfg: ((ctx: SurfaceCtx) => string) | undefined,
+  ctx: SurfaceCtx,
+): string => {
+  if (cfg !== undefined) return cfg(ctx);
+  return ctx.kind === "issue" ? `issue-${ctx.item!.number}` : `pr-${ctx.pr!.number}`;
+};
+
 export const runAfterLaunch = (
   hook: HomesteadConfig["afterLaunch"],
   ctx: HomesteadContext,
@@ -42,7 +52,14 @@ export const launchAgent = Effect.fn("homestead/launch-agent")(function* (input:
     command: [spec.command],
     worktreeDir: plan.targetDir,
   });
-  const paneId = yield* herdr.createSurface(surface, plan.targetDir, `issue-${item.number}`);
+  const paneId = yield* herdr.createSurface(
+    surface,
+    plan.targetDir,
+    resolveSurfaceLabel(agent.surfaceLabel, {
+      ...makeContext({ repoName, slug: plan.slug, branch, worktreeDir: plan.targetDir, item }),
+      kind: "issue",
+    }),
+  );
 
   const prompt = agent.prompt({ item, branch, worktreeDir: plan.targetDir, repoName, args });
 

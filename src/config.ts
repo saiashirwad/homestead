@@ -73,7 +73,10 @@ const mergeValidatedConfig = (config: HomesteadConfig, data: ConfigData): Homest
   services: data.services,
   setup: data.setup,
   env: mergeOptionalSection(config.env, data.env, { derive: config.env?.derive }),
-  agent: mergeOptionalSection(config.agent, data.agent, { prompt: config.agent?.prompt }),
+  agent: mergeOptionalSection(config.agent, data.agent, {
+    prompt: config.agent?.prompt,
+    surfaceLabel: config.agent?.surfaceLabel,
+  }),
   issues: mergeOptionalSection(config.issues, data.issues, {
     branch: config.issues?.branch,
     comment: config.issues?.comment ?? data.issues?.comment,

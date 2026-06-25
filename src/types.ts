@@ -59,6 +59,7 @@ export interface AgentPromptContext {
 
 export interface AgentConfig extends AgentConfigData {
   readonly prompt?: ((ctx: AgentPromptContext) => string) | undefined;
+  readonly surfaceLabel?: ((ctx: HomesteadContext & { kind: "issue" | "pr" }) => string) | undefined;
 }
 
 export interface TrackingContext extends WorkItem {
