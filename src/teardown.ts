@@ -1,9 +1,9 @@
-import { Console, Effect } from "effect";
+import { Console, Effect, Option } from "effect";
 import { worktreePathForBranch } from "./git/porcelain.ts";
 import { Herdr } from "./herdr/service.ts";
 import { capture, runExit } from "./process.ts";
 import { refExists } from "./worktree/base-ref.ts";
-import { markCompleted, markFinished, markStopped } from "./tracking.ts";
+import { loadTrackingState, markCompleted, markFinished, markStopped } from "./tracking.ts";
 import type { HomesteadServices } from "./types.ts";
 
 // `homestead kill` / `homestead close` — the inverse of `issue`/`worktree`.
@@ -50,12 +50,40 @@ const teardownWorktree = Effect.fn("homestead/teardown-worktree")(function* (
   }
 });
 
+// Delete the remote branch, with two guards:
+//   1. Hard floor: only ever delete branches we own (issue flow writes tracking
+//      state; PR review never does). No flag overrides this — we must not delete
+//      a PR author's remote head branch.
+//   2. Opt-out: `--keep-remote` skips deletion even for our own branches.
+const deleteRemoteBranch = Effect.fn("homestead/delete-remote-branch")(function* (
+  primaryRoot: string,
+  branch: string,
+  tracked: Option.Option<unknown>,
+  keepRemote: boolean,
+) {
+  if (keepRemote) {
+    yield* Console.log(`  (keeping remote '${branch}' — --keep-remote)`);
+    return;
+  }
+  if (Option.isNone(tracked)) return;
+  yield* runExit("git", ["push", "origin", "--delete", branch], { cwd: primaryRoot }).pipe(
+    Effect.catchDefect(() => Effect.succeed(undefined)),
+  );
+});
+
 export const killBranch = Effect.fn("homestead/kill-branch")(function* (
   primaryRoot: string,
   repoName: string,
   branch: string,
+  keepRemote = false,
 ) {
   yield* Console.log(`\n▸ Killing '${branch}'`);
+
+  // Read tracking state BEFORE teardownWorktree: markStopped (called inside it)
+  // deletes the file. Only the issue flow writes tracking state; PR review
+  // never does — so gating here prevents `kill` on a same-repo PR review from
+  // deleting the PR author's remote head branch.
+  const tracked = yield* loadTrackingState(repoName, branch);
 
   yield* teardownWorktree(primaryRoot, branch, markStopped(repoName, branch));
 
@@ -68,9 +96,7 @@ export const killBranch = Effect.fn("homestead/kill-branch")(function* (
     yield* Console.log(`  (branch '${branch}' already gone)`);
   }
 
-  yield* runExit("git", ["push", "origin", "--delete", branch], { cwd: primaryRoot }).pipe(
-    Effect.catchDefect(() => Effect.succeed(undefined)),
-  );
+  yield* deleteRemoteBranch(primaryRoot, branch, tracked, keepRemote);
 
   yield* Console.log(`  ✓ killed '${branch}'`);
 });
@@ -92,8 +118,15 @@ export const completeBranch = Effect.fn("homestead/complete-branch")(function* (
   primaryRoot: string,
   repoName: string,
   branch: string,
+  keepRemote = false,
 ) {
   yield* Console.log(`\n▸ Completing '${branch}'`);
+
+  // Read tracking state BEFORE teardownWorktree: markCompleted (called inside it)
+  // deletes the file. Only the issue flow writes tracking state; PR review never
+  // does — so gating here prevents `complete` on a same-repo PR review from
+  // deleting the PR author's remote head branch.
+  const tracked = yield* loadTrackingState(repoName, branch);
 
   yield* teardownWorktree(primaryRoot, branch, markCompleted(repoName, branch));
 
@@ -106,9 +139,7 @@ export const completeBranch = Effect.fn("homestead/complete-branch")(function* (
     yield* Console.log(`  (branch '${branch}' already gone)`);
   }
 
-  yield* runExit("git", ["push", "origin", "--delete", branch], { cwd: primaryRoot }).pipe(
-    Effect.catchDefect(() => Effect.succeed(undefined)),
-  );
+  yield* deleteRemoteBranch(primaryRoot, branch, tracked, keepRemote);
 
   yield* Console.log(`  ✓ completed '${branch}' (issue closed, branch removed)`);
 });
