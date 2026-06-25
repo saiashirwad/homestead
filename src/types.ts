@@ -1,6 +1,7 @@
 import type { Effect } from "effect";
 import type { FileSystem, Path } from "effect";
 import type { ChildProcessSpawner } from "effect/unstable/process";
+import type { HomesteadEvent } from "./events.ts";
 import type { Herdr } from "./herdr/service.ts";
 import type {
   AgentConfigData,
@@ -27,6 +28,7 @@ export type {
 
 export type { WorkItem } from "./work-item.ts";
 export type { HomesteadContext } from "./context.ts";
+export type { HomesteadEvent } from "./events.ts";
 
 export type HomesteadServices =
   | FileSystem.FileSystem
@@ -114,6 +116,9 @@ export interface HomesteadConfig {
     | undefined;
   readonly afterTeardown?:
     | ((ctx: HomesteadContext & { readonly verb: "kill" | "close" | "complete"; readonly reviewLabel?: string }) => Effect.Effect<void, never, HomesteadServices>)
+    | undefined;
+  readonly onEvent?:
+    | ((e: HomesteadEvent) => Effect.Effect<void, never, HomesteadServices>)
     | undefined;
 }
 
