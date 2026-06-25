@@ -1,13 +1,14 @@
 import { Console, Effect, FileSystem } from "effect";
-import { ConfigInvalid, ServiceUnavailable } from "../errors.ts";
-import { applyTemplate, setEnvVar } from "../text.ts";
-import { pollSchedule, probeTcp, run, runExit } from "../process.ts";
-import { DEFAULT_SERVICE_TIMEOUT_MS } from "../defaults.ts";
-import {
-  type HomesteadConfig,
-  type Plan,
-} from "../types.ts";
+import { makeContext, type HomesteadContext } from "../context.ts";
 import type { Repo } from "./repo.ts";
+
+export const resolveSetup = (
+  cfg:
+    | ReadonlyArray<SetupStep>
+    | ((ctx: HomesteadContext & { plan: Plan }) => ReadonlyArray<SetupStep>)
+    | undefined,
+  ctx: HomesteadContext & { plan: Plan },
+): ReadonlyArray<SetupStep> => (typeof cfg === "function" ? cfg(ctx) : cfg ?? []);
 
 // Write the worktree's .env: the source body with our owned keys overridden.
 export const writeEnv = Effect.fn("homestead/write-env")(function* (plan: Plan) {
@@ -86,8 +87,18 @@ export const runSetup = Effect.fn("homestead/run-setup")(function* (repo: Repo, 
     repoName: repo.repoName,
   };
   const envMap = Object.fromEntries(plan.envEdits);
+  const ctx = {
+    ...makeContext({
+      repoName: repo.repoName,
+      slug: plan.slug,
+      branch: plan.branch,
+      worktreeDir: plan.targetDir,
+      env: (key) => envMap[key],
+    }),
+    plan,
+  };
 
-  for (const step of config.setup ?? []) {
+  for (const step of resolveSetup(config.setup, ctx)) {
     const argv = step.run.map((arg) => applyTemplate(arg, vars, envMap));
     const command = argv[0];
     if (command === undefined || command === "") {

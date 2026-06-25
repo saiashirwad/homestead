@@ -107,7 +107,10 @@ export interface HomesteadConfig {
   readonly ports?: ReadonlyArray<PortSpec>;
   readonly env?: EnvConfig;
   readonly services?: ReadonlyArray<ServiceSpec>;
-  readonly setup?: ReadonlyArray<SetupStep>;
+  readonly setup?:
+    | ReadonlyArray<SetupStep>
+    | ((ctx: HomesteadContext & { plan: Plan }) => ReadonlyArray<SetupStep>)
+    | undefined;
   readonly agent?: AgentConfig;
   readonly issues?: IssuesConfig;
   readonly pr?: PrConfig;

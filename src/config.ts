@@ -40,7 +40,7 @@ const mergeOptionalSection = <T extends object>(
 const toConfigData = (config: HomesteadConfig): ConfigData => ({
   ports: config.ports,
   services: config.services,
-  setup: config.setup,
+  setup: typeof config.setup === "function" ? [] : config.setup,
   env: config.env === undefined ? undefined : pickDefined(config.env, ENV_DATA_FIELDS),
   agent:
     config.agent === undefined
@@ -76,7 +76,7 @@ const mergeValidatedConfig = (config: HomesteadConfig, data: ConfigData): Homest
   ...config,
   ports: data.ports,
   services: data.services,
-  setup: data.setup,
+  setup: typeof config.setup === "function" ? config.setup : data.setup,
   env: mergeOptionalSection(config.env, data.env, { derive: config.env?.derive }),
   agent: mergeOptionalSection(config.agent, data.agent, {
     prompt: config.agent?.prompt,
