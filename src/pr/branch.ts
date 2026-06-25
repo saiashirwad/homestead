@@ -7,10 +7,14 @@ export type PrCheckout =
   | { readonly kind: "same-repo"; readonly branch: string }
   | { readonly kind: "fork"; readonly branch: string };
 
-export const planPrCheckout = (pr: PrView): PrCheckout =>
-  pr.isCrossRepository
-    ? { kind: "fork", branch: `pr-${pr.number}` }
-    : { kind: "same-repo", branch: pr.headRefName };
+export const planPrCheckout = (
+  pr: PrView,
+  prBranch?: (ctx: { pr: PrView; kind: "fork" | "same-repo" }) => string,
+): PrCheckout => {
+  const kind = pr.isCrossRepository ? "fork" : "same-repo";
+  const fallback = kind === "fork" ? `pr-${pr.number}` : pr.headRefName;
+  return { kind, branch: prBranch ? prBranch({ pr, kind }) : fallback };
+};
 
 // Make sure a local branch points at the PR head, so setupWorktree can attach a
 // worktree to it. Same-repo: fetch the head and create the branch only if it's

@@ -93,6 +93,7 @@ export interface PrPromptContext {
 export interface PrConfig extends PrConfigData {
   readonly reviewPrompt?: ((ctx: PrPromptContext) => string) | undefined;
   readonly workPrompt?: ((ctx: PrPromptContext) => string) | undefined;
+  readonly prBranch?: ((ctx: { pr: PrView; kind: "fork" | "same-repo" }) => string) | undefined;
 }
 
 export interface HomesteadConfig {

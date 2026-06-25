@@ -54,13 +54,15 @@ test("lifecycle hooks survive validateConfigShape untouched", () => {
 test("validateConfigShape preserves pr block (checks + prompt overrides)", () => {
   const reviewPrompt = () => "review";
   const workPrompt = () => "work";
+  const prBranch = () => "custom-branch";
   const config: HomesteadConfig = {
-    pr: { checks: "bun run check", reviewPrompt, workPrompt },
+    pr: { checks: "bun run check", reviewPrompt, workPrompt, prBranch },
   };
   const merged = validateConfigShape(config);
   expect(merged.pr?.checks).toBe("bun run check");
   expect(merged.pr?.reviewPrompt).toBe(reviewPrompt);
   expect(merged.pr?.workPrompt).toBe(workPrompt);
+  expect(merged.pr?.prBranch).toBe(prBranch);
 });
 
 test("requireAgentConfig applies default prompt when unset", async () => {

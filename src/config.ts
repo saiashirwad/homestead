@@ -92,6 +92,7 @@ const mergeValidatedConfig = (config: HomesteadConfig, data: ConfigData): Homest
   pr: mergeOptionalSection(config.pr, data.pr, {
     reviewPrompt: config.pr?.reviewPrompt,
     workPrompt: config.pr?.workPrompt,
+    prBranch: config.pr?.prBranch,
   }),
 });
 

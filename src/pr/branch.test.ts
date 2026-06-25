@@ -18,3 +18,8 @@ test("planPrCheckout uses the head branch for same-repo PRs", () => {
 test("planPrCheckout uses pr-<n> for cross-repo PRs", () => {
   expect(planPrCheckout({ ...base, isCrossRepository: true })).toEqual({ kind: "fork", branch: "pr-87" });
 });
+
+test("prBranch callback overrides", () => {
+  const fork = { number: 9, headRefName: "feature", isCrossRepository: true } as PrView;
+  expect(planPrCheckout(fork, (c) => `custom-${c.pr.number}-${c.kind}`).branch).toBe("custom-9-fork");
+});

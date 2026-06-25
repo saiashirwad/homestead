@@ -25,7 +25,7 @@ export const launchPr = Effect.fn("homestead/launch-pr")(function* (input: Launc
 
   yield* validatePrRef(ref);
   const pr = yield* resolvePr(ref);
-  const checkout = planPrCheckout(pr);
+  const checkout = planPrCheckout(pr, config.pr?.prBranch);
 
   if (mode === "work" && checkout.kind === "fork") {
     return yield* new UsageError({
