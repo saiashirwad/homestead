@@ -9,12 +9,14 @@ homestead gives each one its own slice — ports, `.env`, setup — and opens it
 ```bash
 homestead worktree my-feature     # branch, provision, open
 homestead issue 21 22 23          # same, plus an agent in each pane
-homestead review 87               # open PR #87 in a worktree; Claude reviews it
-homestead pr 87                   # open PR #87 in a worktree; Claude continues it
+homestead review 87               # open PR #87 in a worktree; Claude reviews it (read-only)
+homestead pr 87                   # open PR #87 in a worktree; Claude continues it (same-repo only)
 homestead close 21                # tear down, keep the branch, issue → review
-homestead complete 21             # mark issue completed on GitHub, remove branch
-homestead kill my-feature         # tear down everything
+homestead complete 21             # mark issue completed on GitHub, remove branch (local + remote)
+homestead kill my-feature         # tear down everything, reverse issue signals
 ```
+
+`issue`, `close`, `complete`, and `kill` accept a branch name, an issue number, or a GitHub issue URL.
 
 ## Install
 
@@ -32,7 +34,9 @@ From your repo root, inside a herdr session:
 homestead init
 ```
 
-Edit `homestead.config.ts` — ports, env, setup steps. Then:
+`init` scaffolds a starter `homestead.config.ts` (only if one doesn't exist), writes the
+generated types to `generated/homestead.config.types.d.ts`, and installs homestead's
+bundled Claude Code skills into `.claude/skills/`. Edit `homestead.config.ts` — ports, env, setup steps. Then:
 
 ```bash
 homestead worktree my-feature
@@ -68,6 +72,27 @@ The generated types track the homestead version you ran `init` with — re-run
 `homestead init` after upgrading to refresh them.
 
 Re-running on an existing worktree is safe — it reuses the same ports.
+
+## Shared services
+
+Some dependencies — a database, a Redis instance — are shared across worktrees rather than
+spun up per worktree. List them under `services`; homestead probes each one's TCP port during
+provisioning and, if it's not reachable, runs its `start` command and waits for it to come up.
+
+```ts
+services: [
+  {
+    name: "postgres",
+    host: "127.0.0.1",
+    port: 5432,
+    start: ["docker", "compose", "up", "-d", "db"],  // optional; run if port is dead
+    timeoutMs: 15_000,                                 // optional; wait window (default 15s)
+  },
+],
+```
+
+`start` and `timeoutMs` are optional — omit `start` to only probe (and fail provisioning if the
+service is down).
 
 ## Configuration reference
 
@@ -194,6 +219,8 @@ These static-or-callback fields are resolved once at the relevant stage:
 | `agent.surfaceLabel` | — | `HomesteadContext & { kind: "issue" \| "pr" }` | `issue-{n}` / `pr-{n}` |
 | `setup` | `SetupStep[]` | `HomesteadContext & { plan }` | `[]` (no steps) |
 | `pr.checks` | `string` | `{ pr, checks? }` | omitted from kickoff prompt |
+| `pr.reviewPrompt` | — | `PrPromptContext` | sensible default for `review` |
+| `pr.workPrompt` | — | `PrPromptContext` | sensible default for `pr` |
 | `pr.prBranch` | — | `{ pr, kind: "fork" \| "same-repo" }` | `pr-{n}` (fork) or `pr.headRefName` (same-repo) |
 | `ports[].base` | `number` | `HomesteadContext` | *(required)* |
 
@@ -272,17 +299,23 @@ Notes:
 
 ## Commands
 
-| | |
-| --- | --- |
-| `worktree <name>` | new worktree — ports, env, setup |
-| `issue <n>...` | same, plus an agent in each pane |
-| `close <n>` | tear down, keep the branch |
-| `kill <name>` | tear down everything |
+| Command | What it does | Flags |
+| --- | --- | --- |
+| `init` | scaffold `homestead.config.ts`, generated types, and Claude skills | — |
+| `worktree <name>` | new worktree — ports, env, setup | `--from <ref>`, `--dir <path>`, `--no-setup`, `--dry-run` |
+| `issue <ref>...` | same, plus an agent in each pane | — |
+| `review <ref>` | pull a PR into a worktree; Claude reviews it (read-only) | — |
+| `pr <ref>` | pull a PR into a worktree; Claude continues it (same-repo only) | — |
+| `close <ref>...` | tear down, keep the branch, issue → review | — |
+| `complete <ref>...` | mark issue completed on GitHub, remove worktree + branch | `--keep-remote` |
+| `kill <ref>...` | tear down everything, reverse issue signals | `--keep-remote` |
+
+`<ref>` is a branch name, an issue number, or a GitHub issue/PR URL, depending on the command.
 
 ## Prerequisites
 
-| | `worktree` | `issue` |
-| --- | --- | --- |
-| git | ✓ | ✓ |
-| herdr session | ✓ | ✓ |
-| `gh` (authenticated) | | ✓ |
+| | `worktree` | `issue` | `review` / `pr` |
+| --- | --- | --- | --- |
+| git | ✓ | ✓ | ✓ |
+| herdr session | ✓ | ✓ | ✓ |
+| `gh` (authenticated) | | ✓ | ✓ |
