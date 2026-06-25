@@ -22,7 +22,7 @@ export default {
 `;
 
 // The generated, effect-free types ship inside the package (src/ is in "files").
-const BUNDLED_CONFIG_TYPES = `${import.meta.dirname}/homestead.config.types.d.ts`;
+const BUNDLED_CONFIG_TYPES = `${import.meta.dirname}/generated/homestead.config.types.d.ts`;
 const CONFIG_TYPES_BASENAME = "homestead.config.types.d.ts";
 
 // Bundled Claude Code skills live next to this file (src/skills/*), so they

@@ -13,14 +13,14 @@
 //   bun run scripts/gen-config-types.ts --check    # fail if out of date (CI/release)
 
 import ts from "typescript";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const typesEntry = join(root, "src", "types.ts");
-const outPath = join(root, "src", "homestead.config.types.d.ts");
+const outPath = join(root, "src", "generated", "homestead.config.types.d.ts");
 const pkgVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version as string;
 
 // afterSetup is the only member whose type touches `effect` (Effect + the
@@ -128,6 +128,7 @@ if (process.argv.includes("--check")) {
   }
   console.log("homestead.config.types.d.ts is up to date");
 } else {
+  mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, output);
   console.log(`wrote ${outPath}`);
 }
