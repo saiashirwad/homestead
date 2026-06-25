@@ -65,12 +65,18 @@ export interface TrackingContext extends WorkItem {
   readonly host: string;
 }
 
-export interface IssuesConfig extends Omit<IssuesConfigData, "comment"> {
+export interface IssuesConfig extends Omit<IssuesConfigData, "comment" | "labelColor"> {
   readonly branch?: ((item: WorkItem) => string) | undefined;
   readonly comment?: boolean | ((ctx: TrackingContext) => string);
   readonly stopComment?: boolean | ((ctx: HomesteadContext & { host: string }) => string);
   readonly reviewComment?: boolean | ((ctx: HomesteadContext & { host: string }) => string);
   readonly closeComment?: boolean | ((ctx: HomesteadContext & { host: string }) => string);
+  readonly closeReason?:
+    | "completed"
+    | "not planned"
+    | ((ctx: HomesteadContext) => "completed" | "not planned")
+    | undefined;
+  readonly labelColor?: string | ((ctx: { label: string; kind: "wip" | "review" }) => string) | undefined;
 }
 
 export interface PrPromptContext {

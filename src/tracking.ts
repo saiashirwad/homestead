@@ -16,7 +16,15 @@ export const TrackingStateSchema = Schema.Struct({
 });
 type TrackingState = typeof TrackingStateSchema.Type;
 
-const LABEL_COLOR = "1D76DB";
+export const resolveCloseReason = (
+  cfg: "completed" | "not planned" | ((ctx: HomesteadContext) => "completed" | "not planned") | undefined,
+  ctx: HomesteadContext,
+): "completed" | "not planned" => (typeof cfg === "function" ? cfg(ctx) : (cfg ?? "completed"));
+
+export const resolveLabelColor = (
+  cfg: string | ((ctx: { label: string; kind: "wip" | "review" }) => string) | undefined,
+  ctx: { label: string; kind: "wip" | "review" },
+): string => (typeof cfg === "function" ? cfg(ctx) : (cfg ?? "1D76DB"));
 
 const stateDir = (path: Path.Path, repoName: string) =>
   path.join(os.homedir(), ".homestead", "state", slugify(repoName));
@@ -100,7 +108,14 @@ export const markStarted = Effect.fn("homestead/mark-started")(function* (
   const ref = String(item.number);
 
   if (wantLabel) {
-    yield* gh("gh label create", ["label", "create", label, "--color", LABEL_COLOR, "--force"]);
+    yield* gh("gh label create", [
+      "label",
+      "create",
+      label,
+      "--color",
+      resolveLabelColor(issues.labelColor, { label, kind: "wip" }),
+      "--force",
+    ]);
     yield* gh("gh issue edit --add-label", ["issue", "edit", ref, "--add-label", label]);
   }
   if (wantAssign) {
@@ -196,7 +211,14 @@ export const markFinished = Effect.fn("homestead/mark-finished")(function* (
   const ref = String(state.value.number);
   const host = os.hostname();
   if (state.value.label !== undefined) {
-    yield* gh("gh label create", ["label", "create", reviewLabel, "--color", LABEL_COLOR, "--force"]);
+    yield* gh("gh label create", [
+      "label",
+      "create",
+      reviewLabel,
+      "--color",
+      resolveLabelColor(issues?.labelColor, { label: reviewLabel, kind: "review" }),
+      "--force",
+    ]);
     yield* gh("gh issue edit --add-label", ["issue", "edit", ref, "--add-label", reviewLabel]);
     yield* gh("gh issue edit --remove-label", ["issue", "edit", ref, "--remove-label", state.value.label]);
   }
@@ -259,7 +281,7 @@ export const markCompleted = Effect.fn("homestead/mark-completed")(function* (
     yield* gh("gh issue comment", ["issue", "comment", ref, "--body", closeBody]);
   }
 
-  yield* gh("gh issue close", ["issue", "close", ref, "--reason", "completed"]);
+  yield* gh("gh issue close", ["issue", "close", ref, "--reason", resolveCloseReason(issues?.closeReason, ctx)]);
 
   if (Option.isSome(state)) {
     yield* fs.remove(file).pipe(Effect.orElseSucceed(() => undefined));

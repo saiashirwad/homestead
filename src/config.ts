@@ -53,8 +53,9 @@ const toConfigData = (config: HomesteadConfig): ConfigData => ({
     config.issues === undefined
       ? undefined
       : {
-          ...pickDefined(config.issues, ISSUES_SCALAR_FIELDS),
+          ...pickDefined(config.issues, ["label", "assign", "reviewLabel"] as const),
           ...(typeof config.issues.comment === "boolean" ? { comment: config.issues.comment } : {}),
+          ...(typeof config.issues.labelColor === "string" ? { labelColor: config.issues.labelColor } : {}),
         },
   pr:
     config.pr === undefined
@@ -75,6 +76,8 @@ const mergeValidatedConfig = (config: HomesteadConfig, data: ConfigData): Homest
     stopComment: config.issues?.stopComment,
     reviewComment: config.issues?.reviewComment,
     closeComment: config.issues?.closeComment,
+    closeReason: config.issues?.closeReason,
+    labelColor: config.issues?.labelColor ?? data.issues?.labelColor,
   }),
   pr: mergeOptionalSection(config.pr, data.pr, {
     reviewPrompt: config.pr?.reviewPrompt,

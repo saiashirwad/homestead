@@ -63,9 +63,10 @@ export const IssuesConfigDataSchema = Schema.Struct({
   assign: Schema.optional(Schema.Boolean),
   comment: Schema.optional(Schema.Boolean),
   reviewLabel: Schema.optional(Schema.String),
+  labelColor: Schema.optional(Schema.String),
 });
 export type IssuesConfigData = typeof IssuesConfigDataSchema.Type;
-export const ISSUES_SCALAR_FIELDS = ["label", "assign", "reviewLabel"] as const satisfies ReadonlyArray<
+export const ISSUES_SCALAR_FIELDS = ["label", "assign", "reviewLabel", "labelColor"] as const satisfies ReadonlyArray<
   keyof IssuesConfigData
 >;
 

@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test";
 import { Effect, Schema } from "effect";
-import { resolveCloseComment, resolveReviewComment, resolveStopComment, TrackingStateSchema } from "./tracking.ts";
+import {
+  resolveCloseComment,
+  resolveCloseReason,
+  resolveLabelColor,
+  resolveReviewComment,
+  resolveStopComment,
+  TrackingStateSchema,
+} from "./tracking.ts";
 
 test("TrackingState decodes legacy state without title/worktreeDir", () => {
   const decode = Schema.decodeUnknownSync(TrackingStateSchema);
@@ -60,4 +67,18 @@ test("review/close comments true uses default body", () => {
 test("review/close comments function form wins", () => {
   expect(resolveReviewComment((c: any) => `r ${c.branch}`, { branch: "b" } as any)).toBe("r b");
   expect(resolveCloseComment((c: any) => `c ${c.branch}`, { branch: "b" } as any)).toBe("c b");
+});
+
+test("closeReason default is completed", () => {
+  expect(resolveCloseReason(undefined, {} as any)).toBe("completed");
+  expect(resolveCloseReason("not planned", {} as any)).toBe("not planned");
+  expect(resolveCloseReason((_: any) => "not planned", {} as any)).toBe("not planned");
+});
+
+test("labelColor default is 1D76DB", () => {
+  expect(resolveLabelColor(undefined, { label: "agent:wip", kind: "wip" })).toBe("1D76DB");
+  expect(resolveLabelColor("FF0000", { label: "x", kind: "wip" })).toBe("FF0000");
+  expect(resolveLabelColor((c) => (c.kind === "review" ? "00FF00" : "0000FF"), { label: "x", kind: "review" })).toBe(
+    "00FF00",
+  );
 });
