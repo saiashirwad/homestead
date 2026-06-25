@@ -83,4 +83,13 @@ export default defineConfig({
     // prompt: (ctx) =>
     //   `Work GitHub issue #${ctx.item.number} (${ctx.item.url}). Read the issue and propose a plan.`,
   },
+
+  // `homestead review <pr>` / `homestead pr <pr>` pull a PR into a worktree and
+  // seed Claude with a kickoff prompt (review = summarize + run checks + flag
+  // risks; pr = continue the work). All optional — defaults ship.
+  pr: {
+    checks: "bun run check", // named in the kickoff prompt; omit to let Claude infer
+    // reviewPrompt: ({ pr, checks }) => `Review PR #${pr.number} (${pr.url}).`,
+    // workPrompt: ({ pr }) => `Continue PR #${pr.number} (${pr.url}).`,
+  },
 });

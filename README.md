@@ -9,6 +9,8 @@ homestead gives each one its own slice — ports, `.env`, setup — and opens it
 ```bash
 homestead worktree my-feature     # branch, provision, open
 homestead issue 21 22 23          # same, plus an agent in each pane
+homestead review 87               # open PR #87 in a worktree; Claude reviews it
+homestead pr 87                   # open PR #87 in a worktree; Claude continues it
 homestead close 21                # tear down, keep the branch, issue → review
 homestead complete 21             # mark issue completed on GitHub, remove branch
 homestead kill my-feature         # tear down everything
