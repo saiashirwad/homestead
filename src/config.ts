@@ -1,6 +1,7 @@
 import { Cause, Effect, Exit, FileSystem, Option, Path, Schema } from "effect";
 import { pathToFileURL } from "node:url";
-import { ConfigDataSchema, type ConfigData, AGENT_DATA_FIELDS, ENV_DATA_FIELDS } from "./config-schema.ts";
+import { ConfigDataSchema } from "./config-schema.ts";
+import { mergeValidatedConfig, toConfigData } from "./config-strip.ts";
 import { ConfigInvalid, ConfigNotFound } from "./errors.ts";
 import type { HomesteadConfig } from "./types.ts";
 
@@ -13,102 +14,6 @@ const defaultExport = (mod: unknown): HomesteadConfig | undefined => {
   if (typeof mod !== "object" || mod === null || !("default" in mod)) return undefined;
   return isConfigObject(mod.default) ? mod.default : undefined;
 };
-
-const pickDefined = <T extends object, K extends keyof T>(
-  source: T,
-  keys: readonly K[],
-): Pick<T, K> => {
-  const result = {} as Pick<T, K>;
-  for (const key of keys) {
-    const value = source[key];
-    if (value !== undefined) {
-      result[key] = value;
-    }
-  }
-  return result;
-};
-
-const mergeOptionalSection = <T extends object>(
-  original: T | undefined,
-  data: Partial<T> | undefined,
-  hooks: Partial<T>,
-): T | undefined => {
-  if (original === undefined && data === undefined) return undefined;
-  return { ...data, ...hooks } as T;
-};
-
-// Callable `ports[].base` values cannot pass Schema decode — substitute 0 and
-// re-attach the original specs in mergeValidatedConfig.
-const toConfigData = (config: HomesteadConfig): ConfigData => ({
-  ports: config.ports?.map(({ key, base }) => ({
-    key,
-    base: typeof base === "function" ? 0 : base,
-  })),
-  services: config.services,
-  setup: typeof config.setup === "function" ? [] : config.setup,
-  env: config.env === undefined ? undefined : pickDefined(config.env, ENV_DATA_FIELDS),
-  agent:
-    config.agent === undefined
-      ? undefined
-      : {
-          ...pickDefined(
-            config.agent,
-            AGENT_DATA_FIELDS.filter((key) => key !== "command") as ReadonlyArray<
-              Exclude<(typeof AGENT_DATA_FIELDS)[number], "command">
-            >,
-          ),
-          ...(Array.isArray(config.agent.command) ? { command: [...config.agent.command] } : {}),
-        },
-  issues:
-    config.issues === undefined
-      ? undefined
-      : {
-          ...(typeof config.issues.label === "string" ? { label: config.issues.label } : {}),
-          ...(typeof config.issues.reviewLabel === "string" ? { reviewLabel: config.issues.reviewLabel } : {}),
-          ...(typeof config.issues.assign === "boolean" || typeof config.issues.assign === "string"
-            ? { assign: config.issues.assign }
-            : {}),
-          ...(typeof config.issues.comment === "boolean" ? { comment: config.issues.comment } : {}),
-          ...(typeof config.issues.labelColor === "string" ? { labelColor: config.issues.labelColor } : {}),
-        },
-  pr:
-    config.pr === undefined
-      ? undefined
-      : {
-          ...(typeof config.pr.checks === "string" ? { checks: config.pr.checks } : {}),
-        },
-});
-
-const mergeValidatedConfig = (config: HomesteadConfig, data: ConfigData): HomesteadConfig => ({
-  ...config,
-  ports: config.ports ?? data.ports,
-  services: data.services,
-  setup: typeof config.setup === "function" ? config.setup : data.setup,
-  env: mergeOptionalSection(config.env, data.env, { derive: config.env?.derive }),
-  agent: mergeOptionalSection(config.agent, data.agent, {
-    prompt: config.agent?.prompt,
-    surfaceLabel: config.agent?.surfaceLabel,
-    command: config.agent?.command ?? data.agent?.command,
-  }),
-  issues: mergeOptionalSection(config.issues, data.issues, {
-    branch: config.issues?.branch,
-    comment: config.issues?.comment ?? data.issues?.comment,
-    stopComment: config.issues?.stopComment,
-    reviewComment: config.issues?.reviewComment,
-    closeComment: config.issues?.closeComment,
-    closeReason: config.issues?.closeReason,
-    label: config.issues?.label ?? data.issues?.label,
-    reviewLabel: config.issues?.reviewLabel ?? data.issues?.reviewLabel,
-    assign: config.issues?.assign ?? data.issues?.assign,
-    labelColor: config.issues?.labelColor ?? data.issues?.labelColor,
-  }),
-  pr: mergeOptionalSection(config.pr, data.pr, {
-    reviewPrompt: config.pr?.reviewPrompt,
-    workPrompt: config.pr?.workPrompt,
-    prBranch: config.pr?.prBranch,
-    checks: config.pr?.checks ?? data.pr?.checks,
-  }),
-});
 
 export const validateConfigShape = (config: HomesteadConfig): HomesteadConfig => {
   const data = Schema.decodeUnknownSync(ConfigDataSchema)(toConfigData(config));

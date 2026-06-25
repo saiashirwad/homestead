@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { makeContext } from "../context.ts";
 import { emit } from "../events.ts";
+import { runAfterLaunch } from "../hooks.ts";
 import type {
   AgentConfig,
   AgentPromptContext,
@@ -24,13 +25,6 @@ export const resolveSurfaceLabel = (
   return ctx.kind === "issue" ? `issue-${ctx.item!.number}` : `pr-${ctx.pr!.number}`;
 };
 
-export const runAfterLaunch = (
-  hook: HomesteadConfig["afterLaunch"],
-  ctx: HomesteadContext,
-  paneId: string,
-): Effect.Effect<void, never, HomesteadServices> =>
-  hook === undefined ? Effect.void : hook({ ...ctx, paneId });
-
 export interface LaunchAgentInput {
   readonly config: HomesteadConfig;
   readonly plan: Plan;
@@ -43,10 +37,8 @@ export interface LaunchAgentInput {
 
 export const launchAgent = Effect.fn("homestead/launch-agent")(function* (input: LaunchAgentInput) {
   const { plan, item, branch, repoName, agent, args = [] } = input;
-  const commandCtx = {
-    ...makeContext({ repoName, slug: plan.slug, branch, worktreeDir: plan.targetDir, item }),
-    args,
-  };
+  const baseCtx = makeContext({ repoName, slug: plan.slug, branch, worktreeDir: plan.targetDir, item });
+  const commandCtx = { ...baseCtx, args };
   const spec = toSpec({ ...agent, command: resolveCommand(agent.command, commandCtx) });
   const surface = agent.surface ?? "worktree";
   const herdr = yield* Herdr;
@@ -57,27 +49,14 @@ export const launchAgent = Effect.fn("homestead/launch-agent")(function* (input:
     command: [spec.command],
     worktreeDir: plan.targetDir,
   });
-  const paneId = yield* herdr.createSurface(
-    surface,
-    plan.targetDir,
-    resolveSurfaceLabel(agent.surfaceLabel, {
-      ...makeContext({ repoName, slug: plan.slug, branch, worktreeDir: plan.targetDir, item }),
-      kind: "issue",
-    }),
-  );
+  const paneId = yield* herdr.createSurface(surface, plan.targetDir, resolveSurfaceLabel(agent.surfaceLabel, {
+    ...baseCtx,
+    kind: "issue",
+  }));
 
-  const prompt = agent.prompt({
-    ...makeContext({ repoName, slug: plan.slug, branch, worktreeDir: plan.targetDir, item }),
-    args,
-  });
-
+  const prompt = agent.prompt({ ...baseCtx, args });
   yield* launchAndSeed(paneId, spec, prompt, { readyTimeoutMs: agent.readyTimeoutMs });
-
-  yield* runAfterLaunch(
-    input.config.afterLaunch,
-    makeContext({ repoName, slug: plan.slug, branch, worktreeDir: plan.targetDir, item }),
-    paneId,
-  );
+  yield* runAfterLaunch(input.config.afterLaunch, baseCtx, paneId);
 
   yield* emit(input.config.onEvent, {
     type: "agent.launched",

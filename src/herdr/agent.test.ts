@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { BunServices } from "@effect/platform-bun";
 import { Effect, Layer } from "effect";
-import { resolveSurfaceLabel, runAfterLaunch } from "./agent.ts";
+import { resolveSurfaceLabel } from "./agent.ts";
+import { runAfterLaunch } from "../hooks.ts";
 import { makeContext } from "../context.ts";
 import { HerdrTest } from "./test.ts";
 

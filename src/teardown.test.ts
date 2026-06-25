@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { BunServices } from "@effect/platform-bun";
 import { Effect, Layer } from "effect";
 import { emit, teardownEvents, type HomesteadEvent } from "./events.ts";
-import { runBeforeTeardown, runAfterTeardown } from "./teardown.ts";
+import { runAfterTeardown, runBeforeTeardown } from "./hooks.ts";
 import { makeContext } from "./context.ts";
 import { HerdrTest } from "./herdr/test.ts";
 

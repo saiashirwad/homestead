@@ -15,7 +15,7 @@ export const TrackingStateSchema = Schema.Struct({
   assigned: Schema.optional(Schema.Boolean),
   commented: Schema.optional(Schema.Boolean),
 });
-type TrackingState = typeof TrackingStateSchema.Type;
+export type TrackingState = typeof TrackingStateSchema.Type;
 
 export const resolveCloseReason = (
   cfg: "completed" | "not planned" | ((ctx: HomesteadContext) => "completed" | "not planned") | undefined,
@@ -42,11 +42,7 @@ export const resolveReviewLabel = (
   state: Option.Option<TrackingState>,
 ): string => {
   if (Option.isNone(state)) return fallback;
-  const item: WorkItem = {
-    number: state.value.number,
-    url: state.value.url,
-    title: state.value.title ?? "",
-  };
+  const item = itemFromState(state.value);
   return resolveLabel(issues?.reviewLabel, item) ?? fallback;
 };
 
@@ -72,34 +68,71 @@ const gh = Effect.fn("homestead/gh")(function* (label: string, args: ReadonlyArr
   }
 });
 
-type StopCtx = HomesteadContext & { readonly host: string };
+export const itemFromState = (state: TrackingState): WorkItem => ({
+  number: state.number,
+  url: state.url,
+  title: state.title ?? "",
+});
 
-export const resolveStopComment = (
-  cfg: boolean | ((ctx: StopCtx) => string) | undefined,
-  ctx: StopCtx,
+export const stopCtxFromState = (
+  repoName: string,
+  branch: string,
+  state: Option.Option<TrackingState>,
+  host = os.hostname(),
+): TrackingContext => ({
+  ...makeContext({
+    repoName,
+    slug: branch,
+    branch,
+    worktreeDir: Option.isSome(state) ? (state.value.worktreeDir ?? "") : "",
+    ...(Option.isSome(state) && state.value.title !== undefined
+      ? { item: itemFromState(state.value) }
+      : {}),
+  }),
+  host,
+});
+
+type CommentMode =
+  | { readonly whenUnset: "default"; readonly defaultBody: string }
+  | { readonly whenUnset: "off"; readonly whenTrue: string };
+
+export const resolveOptionalComment = (
+  cfg: boolean | ((ctx: TrackingContext) => string) | undefined,
+  ctx: TrackingContext,
+  mode: CommentMode,
 ): string | undefined => {
   if (cfg === false) return undefined;
   if (typeof cfg === "function") return cfg(ctx);
-  return `homestead: agent stopped on \`${ctx.branch}\` (${ctx.host})`;
+  if (cfg === true) return mode.whenUnset === "off" ? mode.whenTrue : mode.defaultBody;
+  return mode.whenUnset === "off" ? undefined : mode.defaultBody;
 };
+
+export const resolveStopComment = (
+  cfg: boolean | ((ctx: TrackingContext) => string) | undefined,
+  ctx: TrackingContext,
+): string | undefined =>
+  resolveOptionalComment(cfg, ctx, {
+    whenUnset: "default",
+    defaultBody: `homestead: agent stopped on \`${ctx.branch}\` (${ctx.host})`,
+  });
 
 export const resolveReviewComment = (
-  cfg: boolean | ((ctx: StopCtx) => string) | undefined,
-  ctx: StopCtx,
-): string | undefined => {
-  if (cfg === undefined || cfg === false) return undefined;
-  if (typeof cfg === "function") return cfg(ctx);
-  return `homestead: \`${ctx.branch}\` moved to review (${ctx.host})`;
-};
+  cfg: boolean | ((ctx: TrackingContext) => string) | undefined,
+  ctx: TrackingContext,
+): string | undefined =>
+  resolveOptionalComment(cfg, ctx, {
+    whenUnset: "off",
+    whenTrue: `homestead: \`${ctx.branch}\` moved to review (${ctx.host})`,
+  });
 
 export const resolveCloseComment = (
-  cfg: boolean | ((ctx: StopCtx) => string) | undefined,
-  ctx: StopCtx,
-): string | undefined => {
-  if (cfg === undefined || cfg === false) return undefined;
-  if (typeof cfg === "function") return cfg(ctx);
-  return `homestead: \`${ctx.branch}\` completed (${ctx.host})`;
-};
+  cfg: boolean | ((ctx: TrackingContext) => string) | undefined,
+  ctx: TrackingContext,
+): string | undefined =>
+  resolveOptionalComment(cfg, ctx, {
+    whenUnset: "off",
+    whenTrue: `homestead: \`${ctx.branch}\` completed (${ctx.host})`,
+  });
 
 export const loadTrackingState = Effect.fn("homestead/load-tracking-state")(function* (
   repoName: string,
@@ -208,7 +241,6 @@ export const markStopped = Effect.fn("homestead/mark-stopped")(function* (
   if (Option.isNone(state)) return;
 
   const ref = String(state.value.number);
-  const host = os.hostname();
   if (state.value.label !== undefined) {
     yield* gh("gh issue edit --remove-label", ["issue", "edit", ref, "--remove-label", state.value.label]);
   }
@@ -220,19 +252,7 @@ export const markStopped = Effect.fn("homestead/mark-stopped")(function* (
     yield* gh("gh issue edit --remove-assignee", ["issue", "edit", ref, "--remove-assignee", "@me"]);
   }
   if (state.value.commented === true) {
-    const ctx: StopCtx = {
-      ...makeContext({
-        repoName,
-        slug: branch,
-        branch,
-        worktreeDir: state.value.worktreeDir ?? "",
-        ...(state.value.title !== undefined
-          ? { item: { number: state.value.number, url: state.value.url, title: state.value.title } }
-          : {}),
-      }),
-      host,
-    };
-    const body = resolveStopComment(issues?.stopComment, ctx);
+    const body = resolveStopComment(issues?.stopComment, stopCtxFromState(repoName, branch, state));
     if (body !== undefined) {
       yield* gh("gh issue comment", ["issue", "comment", ref, "--body", body]);
     }
@@ -254,38 +274,22 @@ export const markFinished = Effect.fn("homestead/mark-finished")(function* (
   if (Option.isNone(state)) return;
 
   const ref = String(state.value.number);
-  const host = os.hostname();
-  const item: WorkItem = {
-    number: state.value.number,
-    url: state.value.url,
-    title: state.value.title ?? "",
-  };
-  const resolvedReviewLabel = resolveLabel(issues?.reviewLabel, item) ?? reviewLabel;
   if (state.value.label !== undefined) {
     yield* gh("gh label create", [
       "label",
       "create",
-      resolvedReviewLabel,
+      reviewLabel,
       "--color",
-      resolveLabelColor(issues?.labelColor, { label: resolvedReviewLabel, kind: "review" }),
+      resolveLabelColor(issues?.labelColor, { label: reviewLabel, kind: "review" }),
       "--force",
     ]);
-    yield* gh("gh issue edit --add-label", ["issue", "edit", ref, "--add-label", resolvedReviewLabel]);
+    yield* gh("gh issue edit --add-label", ["issue", "edit", ref, "--add-label", reviewLabel]);
     yield* gh("gh issue edit --remove-label", ["issue", "edit", ref, "--remove-label", state.value.label]);
   }
-  const ctx: StopCtx = {
-    ...makeContext({
-      repoName,
-      slug: branch,
-      branch,
-      worktreeDir: state.value.worktreeDir ?? "",
-      ...(state.value.title !== undefined
-        ? { item: { number: state.value.number, url: state.value.url, title: state.value.title } }
-        : {}),
-    }),
-    host,
-  };
-  const reviewBody = resolveReviewComment(issues?.reviewComment, ctx);
+  const reviewBody = resolveReviewComment(
+    issues?.reviewComment,
+    stopCtxFromState(repoName, branch, state),
+  );
   if (reviewBody !== undefined) {
     yield* gh("gh issue comment", ["issue", "comment", ref, "--body", reviewBody]);
   }
@@ -316,19 +320,7 @@ export const markCompleted = Effect.fn("homestead/mark-completed")(function* (
     return;
   }
 
-  const host = os.hostname();
-  const ctx: StopCtx = {
-    ...makeContext({
-      repoName,
-      slug: branch,
-      branch,
-      worktreeDir: Option.isSome(state) ? (state.value.worktreeDir ?? "") : "",
-      ...(Option.isSome(state) && state.value.title !== undefined
-        ? { item: { number: state.value.number, url: state.value.url, title: state.value.title } }
-        : {}),
-    }),
-    host,
-  };
+  const ctx = stopCtxFromState(repoName, branch, state);
   const closeBody = resolveCloseComment(issues?.closeComment, ctx);
   if (closeBody !== undefined) {
     yield* gh("gh issue comment", ["issue", "comment", ref, "--body", closeBody]);

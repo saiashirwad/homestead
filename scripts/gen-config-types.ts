@@ -20,6 +20,8 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..");
 const typesEntry = join(root, "src", "types.ts");
+const eventsEntry = join(root, "src", "events.ts");
+const prResolveEntry = join(root, "src", "pr", "resolve.ts");
 const outPath = join(root, "src", "generated", "homestead.config.types.d.ts");
 const pkgVersion = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version as string;
 
@@ -36,41 +38,7 @@ const EFFECT_FREE_HOOKS: Record<string, string> = {
   onEvent: "onEvent?: ((e: HomesteadEvent) => unknown) | undefined",
 };
 
-const PR_VIEW = `export interface PrView {
-  readonly number: number;
-  readonly title: string;
-  readonly url: string;
-  readonly headRefName: string;
-  readonly baseRefName: string;
-  readonly isCrossRepository: boolean;
-}`;
-
-const HOMESTEAD_EVENT = `export type HomesteadEvent =
-  | { type: "worktree.creating"; branch: string; targetDir: string; from?: string }
-  | {
-      type: "agent.launching" | "agent.launched";
-      item: WorkItem;
-      command: ReadonlyArray<string>;
-      paneId?: string;
-      worktreeDir: string;
-    }
-  | {
-      type: "pr.launching" | "pr.launched";
-      pr: PrView;
-      mode: "review" | "work";
-      branch: string;
-      paneId?: string;
-    }
-  | { type: "issues.summary"; launched: number; total: number }
-  | {
-      type: "teardown";
-      verb: "kill" | "close" | "complete";
-      branch: string;
-      phase: "start" | "done";
-      reviewLabel?: string;
-    };`;
-
-const program = ts.createProgram([typesEntry], {
+const program = ts.createProgram([typesEntry, eventsEntry, prResolveEntry], {
   strict: true,
   moduleResolution: ts.ModuleResolutionKind.Bundler,
   allowImportingTsExtensions: true,
@@ -78,28 +46,28 @@ const program = ts.createProgram([typesEntry], {
   skipLibCheck: true,
 });
 const checker = program.getTypeChecker();
-const source = program.getSourceFile(typesEntry);
-if (!source) throw new Error(`cannot load ${typesEntry}`);
-
-const exportsOfFile = checker.getExportsOfModule(checker.getSymbolAtLocation(source)!);
-const findExport = (name: string) => {
-  const sym = exportsOfFile.find((s) => s.name === name);
-  if (!sym) throw new Error(`expected export "${name}" in src/types.ts`);
-  return sym;
-};
 
 const FLAGS =
   ts.TypeFormatFlags.NoTruncation |
   ts.TypeFormatFlags.UseFullyQualifiedType |
   ts.TypeFormatFlags.WriteArrayAsGenericType;
 
+const findExport = (entry: string, name: string) => {
+  const source = program.getSourceFile(entry);
+  if (!source) throw new Error(`cannot load ${entry}`);
+  const sym = checker.getExportsOfModule(checker.getSymbolAtLocation(source)!).find((s) => s.name === name);
+  if (!sym) throw new Error(`expected export "${name}" in ${entry}`);
+  return sym;
+};
+
 // Print one exported type as a structural interface body. We expand the type's
 // own properties (not nested named types — those stay inlined, which is fine
 // for a generated artifact) and never recurse into effect.
 const printInterface = (name: string, opts: { effectFreeHooks?: boolean } = {}): string => {
-  const sym = findExport(name);
+  const sym = findExport(typesEntry, name);
   const type = checker.getDeclaredTypeOfSymbol(sym);
   const props = checker.getPropertiesOfType(type);
+  const source = program.getSourceFile(typesEntry)!;
   const lines: string[] = [];
   for (const prop of props) {
     const override = opts.effectFreeHooks ? EFFECT_FREE_HOOKS[prop.name] : undefined;
@@ -114,6 +82,20 @@ const printInterface = (name: string, opts: { effectFreeHooks?: boolean } = {}):
     lines.push(`  readonly ${prop.name}${optional ? "?" : ""}: ${printed};`);
   }
   return `export interface ${name} {\n${lines.join("\n")}\n}`;
+};
+
+const printExportedTypeAlias = (entry: string, name: string): string => {
+  const sym = findExport(entry, name);
+  const decl = sym.declarations?.[0];
+  const source = program.getSourceFile(entry)!;
+  if (decl !== undefined && ts.isTypeAliasDeclaration(decl)) {
+    const printer = ts.createPrinter({ removeComments: true });
+    const printed = printer.printNode(ts.EmitHint.Unspecified, decl.type, source);
+    return `export type ${name} = ${printed};`;
+  }
+  const type = checker.getDeclaredTypeOfSymbol(sym);
+  const printed = checker.typeToString(type, decl, FLAGS);
+  return `export type ${name} = ${printed};`;
 };
 
 // The named types reachable from HomesteadConfig that consumers may reference,
@@ -139,9 +121,9 @@ const NAMED = [
 
 const blocks = [
   printInterface("WorkItem"),
-  PR_VIEW,
+  printExportedTypeAlias(prResolveEntry, "PrView"),
   ...NAMED.filter((n) => n !== "WorkItem").map((n) => printInterface(n)),
-  HOMESTEAD_EVENT,
+  printExportedTypeAlias(eventsEntry, "HomesteadEvent"),
   printInterface("HomesteadConfig", { effectFreeHooks: true }),
 ];
 

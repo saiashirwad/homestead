@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { makeContext } from "../context.ts";
 import { emit } from "../events.ts";
+import { runAfterLaunch } from "../hooks.ts";
 import { UsageError } from "../errors.ts";
 import { Herdr } from "../herdr/service.ts";
 import { resolveCommand } from "../agent/defaults.ts";
@@ -53,36 +54,25 @@ export const launchPr = Effect.fn("homestead/launch-pr")(function* (input: Launc
   const prompt = buildPrPrompt(mode, pr, config);
   const surface = agent.surface ?? "worktree";
   const herdr = yield* Herdr;
+  const baseCtx = makeContext({
+    repoName: repo.repoName,
+    slug: plan.slug,
+    branch: checkout.branch,
+    worktreeDir: plan.targetDir,
+    pr,
+  });
   const paneId = yield* herdr.createSurface(
     surface,
     plan.targetDir,
-    resolveSurfaceLabel(agent.surfaceLabel, {
-      ...makeContext({
-        repoName: repo.repoName,
-        slug: plan.slug,
-        branch: checkout.branch,
-        worktreeDir: plan.targetDir,
-        pr,
-      }),
-      kind: "pr",
-    }),
+    resolveSurfaceLabel(agent.surfaceLabel, { ...baseCtx, kind: "pr" }),
   );
-  const commandCtx = {
-    ...makeContext({
-      repoName: repo.repoName,
-      slug: plan.slug,
-      branch: checkout.branch,
-      worktreeDir: plan.targetDir,
-      pr,
-    }),
-    args: [] as const,
-  };
   yield* launchAndSeed(
     paneId,
-    toSpec({ ...agent, command: resolveCommand(agent.command, commandCtx) }),
+    toSpec({ ...agent, command: resolveCommand(agent.command, { ...baseCtx, args: [] as const }) }),
     prompt,
     { readyTimeoutMs: agent.readyTimeoutMs },
   );
+  yield* runAfterLaunch(config.afterLaunch, baseCtx, paneId);
 
   yield* emit(config.onEvent, {
     type: "pr.launched",

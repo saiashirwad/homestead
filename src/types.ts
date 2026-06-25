@@ -71,9 +71,9 @@ export interface IssuesConfig extends Omit<IssuesConfigData, "comment" | "labelC
   readonly assign?: boolean | string | ((item: WorkItem) => string | ReadonlyArray<string>) | undefined;
   readonly branch?: ((item: WorkItem) => string) | undefined;
   readonly comment?: boolean | ((ctx: TrackingContext) => string);
-  readonly stopComment?: boolean | ((ctx: HomesteadContext & { host: string }) => string);
-  readonly reviewComment?: boolean | ((ctx: HomesteadContext & { host: string }) => string);
-  readonly closeComment?: boolean | ((ctx: HomesteadContext & { host: string }) => string);
+  readonly stopComment?: boolean | ((ctx: TrackingContext) => string);
+  readonly reviewComment?: boolean | ((ctx: TrackingContext) => string);
+  readonly closeComment?: boolean | ((ctx: TrackingContext) => string);
   readonly closeReason?:
     | "completed"
     | "not planned"

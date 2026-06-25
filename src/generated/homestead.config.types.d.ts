@@ -15,14 +15,7 @@ export interface WorkItem {
   readonly title: string;
 }
 
-export interface PrView {
-  readonly number: number;
-  readonly title: string;
-  readonly url: string;
-  readonly headRefName: string;
-  readonly baseRefName: string;
-  readonly isCrossRepository: boolean;
-}
+export type PrView = typeof PrViewSchema.Type;
 
 export interface HomesteadContext {
   readonly repoName: string;
@@ -129,9 +122,9 @@ export interface IssuesConfig {
   readonly assign?: string | boolean | ((item: WorkItem) => string | ReadonlyArray<string>) | undefined;
   readonly branch?: ((item: WorkItem) => string) | undefined;
   readonly comment?: boolean | ((ctx: TrackingContext) => string) | undefined;
-  readonly stopComment?: boolean | ((ctx: HomesteadContext & { host: string; }) => string) | undefined;
-  readonly reviewComment?: boolean | ((ctx: HomesteadContext & { host: string; }) => string) | undefined;
-  readonly closeComment?: boolean | ((ctx: HomesteadContext & { host: string; }) => string) | undefined;
+  readonly stopComment?: boolean | ((ctx: TrackingContext) => string) | undefined;
+  readonly reviewComment?: boolean | ((ctx: TrackingContext) => string) | undefined;
+  readonly closeComment?: boolean | ((ctx: TrackingContext) => string) | undefined;
   readonly closeReason?: "completed" | "not planned" | ((ctx: HomesteadContext) => "completed" | "not planned") | undefined;
   readonly labelColor?: string | ((ctx: { label: string; kind: "wip" | "review"; }) => string) | undefined;
 }
@@ -143,30 +136,34 @@ export interface PrConfig {
   readonly prBranch?: ((ctx: { pr: PrView; kind: "fork" | "same-repo"; }) => string) | undefined;
 }
 
-export type HomesteadEvent =
-  | { type: "worktree.creating"; branch: string; targetDir: string; from?: string }
-  | {
-      type: "agent.launching" | "agent.launched";
-      item: WorkItem;
-      command: ReadonlyArray<string>;
-      paneId?: string;
-      worktreeDir: string;
-    }
-  | {
-      type: "pr.launching" | "pr.launched";
-      pr: PrView;
-      mode: "review" | "work";
-      branch: string;
-      paneId?: string;
-    }
-  | { type: "issues.summary"; launched: number; total: number }
-  | {
-      type: "teardown";
-      verb: "kill" | "close" | "complete";
-      branch: string;
-      phase: "start" | "done";
-      reviewLabel?: string;
-    };
+export type HomesteadEvent = {
+    type: "worktree.creating";
+    branch: string;
+    targetDir: string;
+    from?: string;
+} | {
+    type: "agent.launching" | "agent.launched";
+    item: WorkItem;
+    command: ReadonlyArray<string>;
+    paneId?: string;
+    worktreeDir: string;
+} | {
+    type: "pr.launching" | "pr.launched";
+    pr: PrView;
+    mode: "review" | "work";
+    branch: string;
+    paneId?: string;
+} | {
+    type: "issues.summary";
+    launched: number;
+    total: number;
+} | {
+    type: "teardown";
+    verb: "kill" | "close" | "complete";
+    branch: string;
+    phase: "start" | "done";
+    reviewLabel?: string;
+};
 
 export interface HomesteadConfig {
   readonly worktreeDir?: ((ctx: HomesteadContext) => string) | undefined;
