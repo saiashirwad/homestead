@@ -15,7 +15,7 @@ import { Herdr } from "./herdr/service.ts";
 import { initRepo } from "./init.ts";
 import { parseIssueArg } from "./issues.ts";
 import { launchIssues, requireAgentConfig } from "./issue/provision.ts";
-import { closeBranch, killBranch } from "./teardown.ts";
+import { closeBranch, completeBranch, killBranch } from "./teardown.ts";
 import { resolveRepo, setupWorktree } from "./worktree/index.ts";
 import { DEFAULT_REVIEW_LABEL } from "./defaults.ts";
 import type { WorktreeOptions } from "./types.ts";
@@ -155,9 +155,34 @@ const closeCommand = Command.make(
     }),
 ).pipe(Command.withDescription("finalize: remove worktree + herdr surface, keep the branch, issue → review"));
 
+const completeCommand = Command.make(
+  "complete",
+  {
+    branches: branchTarget.pipe(
+      Argument.atLeast(1),
+      Argument.withDescription("issue number, issue URL, or branch name"),
+    ),
+  },
+  ({ branches }) =>
+    Effect.gen(function* () {
+      const repo = yield* resolveRepo();
+      yield* Effect.forEach(branches, (branch) => completeBranch(repo.primaryRoot, repo.repoName, branch), {
+        discard: true,
+      });
+      yield* Console.log(`\n✅ completed ${branches.length}: ${branches.join(", ")}`);
+    }),
+).pipe(Command.withDescription("mark issue completed on GitHub + remove worktree & branch (local + remote)"));
+
 const homestead = Command.make("homestead", {}).pipe(
   Command.withDescription("config-driven worktree + interactive-agent provisioning"),
-  Command.withSubcommands([initCommand, worktreeCommand, issueCommand, killCommand, closeCommand]),
+  Command.withSubcommands([
+    initCommand,
+    worktreeCommand,
+    issueCommand,
+    killCommand,
+    closeCommand,
+    completeCommand,
+  ]),
 );
 
 const program = Command.run(homestead, { version: pkg.version });

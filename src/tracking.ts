@@ -148,3 +148,33 @@ export const markFinished = Effect.fn("homestead/mark-finished")(function* (
   }
   yield* fs.remove(file).pipe(Effect.orElseSucceed(() => undefined));
 });
+
+// `homestead complete` — the work is done: close the GitHub issue as completed.
+// The issue number comes from recorded tracking state, or from the branch itself
+// when it's a bare issue number (the default branch for the `issue` flow).
+export const markCompleted = Effect.fn("homestead/mark-completed")(function* (
+  repoName: string,
+  branch: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const file = statePath(path, repoName, branch);
+
+  const state = yield* loadTrackingState(repoName, branch);
+  const ref = Option.isSome(state)
+    ? String(state.value.number)
+    : /^\d+$/.test(branch)
+      ? branch
+      : undefined;
+
+  if (ref === undefined) {
+    yield* Console.log(`  (no issue associated with '${branch}' — skipping issue close)`);
+    return;
+  }
+
+  yield* gh("gh issue close", ["issue", "close", ref, "--reason", "completed"]);
+
+  if (Option.isSome(state)) {
+    yield* fs.remove(file).pipe(Effect.orElseSucceed(() => undefined));
+  }
+});

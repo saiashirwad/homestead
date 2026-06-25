@@ -3,7 +3,7 @@ import { worktreePathForBranch } from "./git/porcelain.ts";
 import { Herdr } from "./herdr/service.ts";
 import { capture, runExit } from "./process.ts";
 import { refExists } from "./worktree/base-ref.ts";
-import { markFinished, markStopped } from "./tracking.ts";
+import { markCompleted, markFinished, markStopped } from "./tracking.ts";
 import type { HomesteadServices } from "./types.ts";
 
 // `homestead kill` / `homestead close` — the inverse of `issue`/`worktree`.
@@ -86,4 +86,29 @@ export const closeBranch = Effect.fn("homestead/close-branch")(function* (
   yield* teardownWorktree(primaryRoot, branch, markFinished(repoName, branch, reviewLabel));
 
   yield* Console.log(`  ✓ closed '${branch}' (branch kept, issue → ${reviewLabel})`);
+});
+
+export const completeBranch = Effect.fn("homestead/complete-branch")(function* (
+  primaryRoot: string,
+  repoName: string,
+  branch: string,
+) {
+  yield* Console.log(`\n▸ Completing '${branch}'`);
+
+  yield* teardownWorktree(primaryRoot, branch, markCompleted(repoName, branch));
+
+  if (yield* refExists(primaryRoot, `refs/heads/${branch}`)) {
+    const code = yield* runExit("git", ["branch", "-D", branch], { cwd: primaryRoot });
+    if (code !== 0) {
+      yield* Console.log(`  ⚠ git branch -D ${branch} failed (exit ${code}) — is it checked out elsewhere?`);
+    }
+  } else {
+    yield* Console.log(`  (branch '${branch}' already gone)`);
+  }
+
+  yield* runExit("git", ["push", "origin", "--delete", branch], { cwd: primaryRoot }).pipe(
+    Effect.catchDefect(() => Effect.succeed(undefined)),
+  );
+
+  yield* Console.log(`  ✓ completed '${branch}' (issue closed, branch removed)`);
 });
