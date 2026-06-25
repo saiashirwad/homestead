@@ -86,8 +86,9 @@ export interface EnvConfig {
 }
 
 export interface AgentConfig {
+  readonly command?: ReadonlyArray<string> | ((ctx: HomesteadContext & { args: ReadonlyArray<string>; }) => ReadonlyArray<string>) | undefined;
   readonly prompt?: ((ctx: AgentPromptContext) => string) | undefined;
-  readonly command?: ReadonlyArray<string> | undefined;
+  readonly surfaceLabel?: ((ctx: HomesteadContext & { kind: "issue" | "pr"; }) => string) | undefined;
   readonly surface?: "worktree" | "tab" | "workspace" | undefined;
   readonly readyMarker?: string | undefined;
   readonly readyRegex?: boolean | undefined;
@@ -96,6 +97,9 @@ export interface AgentConfig {
 }
 
 export interface IssuesConfig {
+  readonly label?: string | ((item: WorkItem) => string) | undefined;
+  readonly reviewLabel?: string | ((item: WorkItem) => string) | undefined;
+  readonly assign?: string | boolean | ((item: WorkItem) => string | ReadonlyArray<string>) | undefined;
   readonly branch?: ((item: WorkItem) => string) | undefined;
   readonly comment?: boolean | ((ctx: TrackingContext) => string) | undefined;
   readonly stopComment?: boolean | ((ctx: HomesteadContext & { host: string; }) => string) | undefined;
@@ -103,14 +107,12 @@ export interface IssuesConfig {
   readonly closeComment?: boolean | ((ctx: HomesteadContext & { host: string; }) => string) | undefined;
   readonly closeReason?: "completed" | "not planned" | ((ctx: HomesteadContext) => "completed" | "not planned") | undefined;
   readonly labelColor?: string | ((ctx: { label: string; kind: "wip" | "review"; }) => string) | undefined;
-  readonly label?: string | ((item: WorkItem) => string) | undefined;
-  readonly assign?: boolean | string | ((item: WorkItem) => string | ReadonlyArray<string>) | undefined;
-  readonly reviewLabel?: string | ((item: WorkItem) => string) | undefined;
 }
 
 export interface PrConfig {
   readonly reviewPrompt?: ((ctx: PrPromptContext) => string) | undefined;
   readonly workPrompt?: ((ctx: PrPromptContext) => string) | undefined;
+  readonly prBranch?: ((ctx: { pr: PrView; kind: "fork" | "same-repo"; }) => string) | undefined;
   readonly checks?: string | undefined;
 }
 
@@ -124,4 +126,8 @@ export interface HomesteadConfig {
   readonly issues?: IssuesConfig | undefined;
   readonly pr?: PrConfig | undefined;
   readonly afterSetup?: ((ctx: WorktreeContext & { readonly plan: Plan }) => unknown) | undefined;
+  readonly afterLaunch?: ((ctx: HomesteadContext & { readonly paneId: string; }) => Effect.Effect<void, never, HomesteadServices>) | undefined;
+  readonly beforeTeardown?: ((ctx: HomesteadContext & { readonly verb: "kill" | "close" | "complete"; readonly tracked: boolean; }) => Effect.Effect<void, never, HomesteadServices>) | undefined;
+  readonly afterTeardown?: ((ctx: HomesteadContext & { readonly verb: "kill" | "close" | "complete"; readonly reviewLabel?: string; }) => Effect.Effect<void, never, HomesteadServices>) | undefined;
+  readonly onEvent?: ((e: HomesteadEvent) => Effect.Effect<void, never, HomesteadServices>) | undefined;
 }
