@@ -14,7 +14,7 @@
 
 // Types come from the generated `homestead.config.types.d.ts` that `homestead
 // init` drops next to this file — so a consumer repo needs nothing installed.
-import type { HomesteadConfig } from "./homestead.config.types";
+import type { HomesteadConfig } from "./generated/homestead.config.types";
 
 // Swap the db-name segment of a Postgres DSN, preserving creds/host/?query —
 // e.g. ".../myapp" + "myapp_my_feature" -> ".../myapp_my_feature".

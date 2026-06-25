@@ -44,12 +44,12 @@ Need a fuller starting point? Copy from [`homestead.config.example.ts`](./homest
 
 ## Config sketch
 
-`homestead init` writes a `homestead.config.types.d.ts` next to your config, so the
+`homestead init` writes `generated/homestead.config.types.d.ts` into your repo, so the
 config is fully typed with **nothing installed** — no `homestead` dependency, no
 `effect`, no bloat. Just a typed default export:
 
 ```ts
-import type { HomesteadConfig } from "./homestead.config.types";
+import type { HomesteadConfig } from "./generated/homestead.config.types";
 
 export default {
   ports: [{ key: "PORT", base: 3000 }],
