@@ -15,6 +15,8 @@ import { Herdr } from "./herdr/service.ts";
 import { initRepo } from "./init.ts";
 import { parseIssueArg } from "./issues.ts";
 import { launchIssues, requireAgentConfig } from "./issue/provision.ts";
+import { parsePrArg } from "./pr/ref.ts";
+import { launchPr } from "./pr/provision.ts";
 import { closeBranch, completeBranch, killBranch } from "./teardown.ts";
 import { resolveRepo, setupWorktree } from "./worktree/index.ts";
 import { DEFAULT_REVIEW_LABEL } from "./defaults.ts";
@@ -33,6 +35,17 @@ const issueRef = Argument.string("issue").pipe(
     },
     (token) => `[homestead] '${token}' is not an issue number or GitHub issue URL.`,
   ),
+);
+
+const prRefArg = Argument.string("pr").pipe(
+  Argument.filterMap(
+    (token) => {
+      const ref = parsePrArg(token);
+      return ref === undefined ? Option.none() : Option.some(ref);
+    },
+    (token) => `[homestead] '${token}' is not a PR number or GitHub PR URL.`,
+  ),
+  Argument.withDescription("PR number or GitHub PR URL"),
 );
 
 const branchTarget = Argument.string("target").pipe(
@@ -173,6 +186,48 @@ const completeCommand = Command.make(
     }),
 ).pipe(Command.withDescription("mark issue completed on GitHub + remove worktree & branch (local + remote)"));
 
+const reviewCommand = Command.make(
+  "review",
+  { ref: prRefArg },
+  ({ ref }) =>
+    Effect.gen(function* () {
+      const repo = yield* resolveRepo();
+      const config = yield* loadConfig(repo.primaryRoot);
+      const agent = yield* requireAgentConfig(config.agent).pipe(
+        Effect.catchTag("UsageError", (e) => fail(e.message)),
+      );
+      yield* launchPr({ mode: "review", ref, config, repo, agent }).pipe(
+        Effect.catchTags({
+          UsageError: (e) => fail(e.message),
+          HerdrError: (e) => fail(`[homestead] couldn't open the PR in herdr (${e.op})`),
+          HerdrNotAvailable: (e) => fail(e.reason),
+          HerdrTimeout: (e) => fail(`[homestead] agent never reached ready (${e.marker})`),
+        }),
+      );
+    }),
+).pipe(Command.withDescription("pull a PR into a worktree; Claude summarizes + runs checks (read-only)"));
+
+const prCommand = Command.make(
+  "pr",
+  { ref: prRefArg },
+  ({ ref }) =>
+    Effect.gen(function* () {
+      const repo = yield* resolveRepo();
+      const config = yield* loadConfig(repo.primaryRoot);
+      const agent = yield* requireAgentConfig(config.agent).pipe(
+        Effect.catchTag("UsageError", (e) => fail(e.message)),
+      );
+      yield* launchPr({ mode: "work", ref, config, repo, agent }).pipe(
+        Effect.catchTags({
+          UsageError: (e) => fail(e.message),
+          HerdrError: (e) => fail(`[homestead] couldn't open the PR in herdr (${e.op})`),
+          HerdrNotAvailable: (e) => fail(e.reason),
+          HerdrTimeout: (e) => fail(`[homestead] agent never reached ready (${e.marker})`),
+        }),
+      );
+    }),
+).pipe(Command.withDescription("pull a PR into a worktree; Claude continues the work (same-repo only)"));
+
 const homestead = Command.make("homestead", {}).pipe(
   Command.withDescription("config-driven worktree + interactive-agent provisioning"),
   Command.withSubcommands([
@@ -182,6 +237,8 @@ const homestead = Command.make("homestead", {}).pipe(
     killCommand,
     closeCommand,
     completeCommand,
+    reviewCommand,
+    prCommand,
   ]),
 );
 
