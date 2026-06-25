@@ -29,6 +29,7 @@ export const launchIssue = Effect.fn("homestead/launch-issue")(function* (input:
   const plan = yield* setupWorktree(config, { create: branch }, repo);
 
   yield* launchAgent({
+    config,
     plan,
     item,
     branch,
