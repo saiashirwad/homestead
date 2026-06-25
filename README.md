@@ -79,6 +79,26 @@ agent: {
 
 The callback receives `ctx.item` (number, URL, title), `ctx.branch`, `ctx.worktreeDir`, `ctx.repoName`, and `ctx.args`. Other agent options: `readyMarker`, `readyTimeoutMs`, `trustPrompt`. See [`homestead.config.example.ts`](./homestead.config.example.ts).
 
+## Agent boot markers
+
+Before homestead types the kickoff prompt, it boots the agent in a herdr pane and **waits for `readyMarker`** — a substring it expects to see once the REPL is ready. If the marker is wrong, the agent boots fine but **silently never receives its prompt** (it just sits at an idle REPL). When that happens the wait eventually hits `readyTimeoutMs` and homestead prints the marker it was waiting for plus the agent's last output, so you can spot the mismatch.
+
+Known-good starting points:
+
+| `command` | `readyMarker` | `trustPrompt` |
+| --- | --- | --- |
+| `["claude"]` | `❯` (default) | `{ marker: "trust this folder", confirm: ["Enter"] }` (applied automatically for `claude`) |
+| `["codex"]` | confirm against your version — see below | none by default |
+| `["aider"]` | confirm against your version — see below | none by default |
+
+Only `claude` ships with defaults. For any other agent, **find your marker** by booting it once in a herdr pane and looking at the glyph/text its prompt settles on (e.g. the input-prompt character), then set `readyMarker` to a stable, unique substring of that line.
+
+Notes:
+
+- **`readyRegex: true`** — escape hatch. Treat `readyMarker` as a JS regex instead of a literal substring. Use it when the prompt line varies (e.g. `readyMarker: "❯|›", readyRegex: true`) or carries changing text around a fixed token.
+- **`readyTimeoutMs`** — how long to wait for the marker (default `30000`). Bump it for slow first boots (cold installs, model downloads, big repos); lower it for fast feedback while you dial in a marker.
+- **`trustPrompt: false`** — disables the trust-folder gate entirely (e.g. an agent that doesn't prompt, or a pre-trusted dir). Set `{ marker, confirm }` to teach homestead a non-Claude trust prompt.
+
 ## Commands
 
 | | |

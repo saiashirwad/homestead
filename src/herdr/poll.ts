@@ -1,4 +1,4 @@
-import { Duration, Effect, Schedule } from "effect";
+import { Duration, Effect, Ref, Schedule } from "effect";
 import { HerdrError, HerdrTimeout } from "./errors.ts";
 import { matcher, type PollOptions, type ReadSource } from "./types.ts";
 
@@ -17,7 +17,9 @@ export const pollUntil = Effect.fn("herdr/poll-until")(function* (
   const timeoutMs = options?.timeoutMs ?? 20_000;
   const pollMs = options?.pollMs ?? 500;
   const source = options?.source ?? "visible";
+  const lastSeen = yield* Ref.make("");
   const matched = yield* read(paneId, { source }).pipe(
+    Effect.tap((rendered) => Ref.set(lastSeen, rendered)),
     Effect.map(predicate),
     Effect.repeat({ schedule: Schedule.spaced(`${pollMs} millis`), until: (done) => done }),
     Effect.timeoutOrElse({
@@ -28,7 +30,8 @@ export const pollUntil = Effect.fn("herdr/poll-until")(function* (
     Effect.map(([duration, ok]) => ({ ok, waitedMs: Duration.toMillis(duration) })),
   );
   if (!matched.ok) {
-    return yield* new HerdrTimeout({ pane: paneId, marker, waitedMs: matched.waitedMs });
+    const recent = yield* Ref.get(lastSeen);
+    return yield* new HerdrTimeout({ pane: paneId, marker, waitedMs: matched.waitedMs, recent });
   }
 });
 

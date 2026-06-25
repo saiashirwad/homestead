@@ -1,6 +1,7 @@
 import { Console, Effect } from "effect";
 import { UsageError } from "../errors.ts";
 import { launchAgent } from "../herdr/agent.ts";
+import { explainTimeout } from "../herdr/errors.ts";
 import { resolveIssue, validateIssueRefs, type IssueRef } from "../issues.ts";
 import { markStarted } from "../tracking.ts";
 import { resolveAgentDefaults } from "../agent/defaults.ts";
@@ -74,7 +75,7 @@ export const launchIssues = Effect.fn("homestead/launch-issues")(function* (inpu
         HerdrNotAvailable: (e) =>
           Console.log(`  ⚠ #${item.number}: ${e.reason} — skipping`).pipe(Effect.as(false)),
         HerdrTimeout: (e) =>
-          Console.log(`  ⚠ #${item.number}: agent never reached ready (${e.marker}) — skipping`).pipe(
+          Console.log(`  ⚠ #${item.number}: ${explainTimeout(e)} — skipping`).pipe(
             Effect.as(false),
           ),
       }),

@@ -118,5 +118,9 @@ test("launchAndSeed fails when ready marker never appears", async () => {
     );
   }).pipe(Effect.provide(HerdrTest));
 
-  await expect(Effect.runPromise(run)).rejects.toMatchObject({ _tag: "HerdrTimeout" });
+  await expect(Effect.runPromise(run)).rejects.toMatchObject({
+    _tag: "HerdrTimeout",
+    marker: "❯",
+    recent: expect.stringContaining("booting..."),
+  });
 });

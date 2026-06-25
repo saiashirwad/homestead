@@ -11,6 +11,7 @@ import {
   ServiceUnavailable,
   UsageError,
 } from "./errors.ts";
+import { explainTimeout } from "./herdr/errors.ts";
 import { Herdr } from "./herdr/service.ts";
 import { initRepo } from "./init.ts";
 import { parseIssueArg } from "./issues.ts";
@@ -209,7 +210,7 @@ const runPr = (mode: "review" | "work", ref: PrRef) =>
         UsageError: (e) => fail(e.message),
         HerdrError: (e) => fail(`[homestead] couldn't open the PR in herdr (${e.op})`),
         HerdrNotAvailable: (e) => fail(e.reason),
-        HerdrTimeout: (e) => fail(`[homestead] agent never reached ready (${e.marker})`),
+        HerdrTimeout: (e) => fail(explainTimeout(e, "[homestead] ")),
       }),
     );
   });
