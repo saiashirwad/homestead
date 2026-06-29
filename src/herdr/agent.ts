@@ -11,6 +11,7 @@ import type {
   WorkItem,
 } from "../types.ts";
 import { resolveCommand } from "../agent/defaults.ts";
+import { buildAutonomousCommand, selfInvocation } from "../agent/autonomous.ts";
 import { Herdr } from "./service.ts";
 import { launchAndSeed, toSpec } from "./launch.ts";
 
@@ -70,15 +71,27 @@ const launchCore = Effect.fn("homestead/launch-core")(function* (input: LaunchCo
     ...(item !== undefined ? { item } : {}),
   });
   const commandCtx = { ...baseCtx, args };
-  const spec = toSpec({ ...agent, command: resolveCommand(agent.command, commandCtx) });
+  // Autonomous mode wraps the resolved agent argv in an `sh -c` tail that
+  // re-invokes homestead to write the sentinel deterministically on exit. The
+  // wrap happens here (not in toSpec) so readyMarker/trustPrompt stay derived
+  // from the *real* agent, not from `sh`.
+  const resolvedCommand = resolveCommand(agent.command, commandCtx);
+  const command = agent.autonomous
+    ? buildAutonomousCommand(resolvedCommand, selfInvocation())
+    : resolvedCommand;
+  const spec = toSpec({ ...agent, command });
   const surface = agent.surface ?? "worktree";
   const herdr = yield* Herdr;
+
+  // Report the *real* agent binary in the launch events, not the `sh` wrapper
+  // autonomous mode runs it under — that's what the user recognizes.
+  const displayBinary = resolvedCommand[0] ?? spec.command;
 
   yield* emit(config.onEvent, {
     type: "agent.launching",
     ...(item !== undefined ? { item } : {}),
     ...(slug !== undefined ? { slug } : {}),
-    command: [spec.command],
+    command: [displayBinary],
     worktreeDir: plan.targetDir,
   });
   // Route by provenance: auto launches nest under the shared `[dispatched]`
@@ -100,7 +113,7 @@ const launchCore = Effect.fn("homestead/launch-core")(function* (input: LaunchCo
     type: "agent.launched",
     ...(item !== undefined ? { item } : {}),
     ...(slug !== undefined ? { slug } : {}),
-    command: [spec.command],
+    command: [displayBinary],
     paneId,
     worktreeDir: plan.targetDir,
   });

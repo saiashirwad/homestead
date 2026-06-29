@@ -32,15 +32,19 @@ const AGENT_SCALAR_FIELDS = [
   "readyRegex",
   "readyTimeoutMs",
   "trustPrompt",
-] as const satisfies ReadonlyArray<Exclude<(typeof AGENT_DATA_FIELDS)[number], "command">>;
+  "statusFile",
+  "autonomous",
+] as const satisfies ReadonlyArray<Exclude<(typeof AGENT_DATA_FIELDS)[number], "command" | "check">>;
 
 /** Scalar subset of agent config that passes Schema decode (callbacks stripped). */
 export const stripAgentData = (agent: AgentConfig | undefined): AgentConfigData | undefined => {
   if (agent === undefined) return undefined;
-  const out = pickDefined(agent, AGENT_SCALAR_FIELDS);
-  if (Array.isArray(agent.command)) {
-    return { ...out, command: [...agent.command] };
-  }
+  const out: { -readonly [K in keyof AgentConfigData]: AgentConfigData[K] } = pickDefined(
+    agent,
+    AGENT_SCALAR_FIELDS,
+  );
+  if (Array.isArray(agent.command)) out.command = [...agent.command];
+  if (Array.isArray(agent.check)) out.check = [...agent.check];
   return out;
 };
 

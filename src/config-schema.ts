@@ -58,6 +58,16 @@ export const AgentConfigDataSchema = Schema.Struct({
   // finish" instruction (default: on). `homestead agent wait` blocks on that
   // sentinel, so disabling it makes a launched agent un-awaitable.
   statusFile: Schema.optional(Schema.Boolean),
+  // Unattended fan-out: swap the plan-gate kickoff ("show me your plan") for a
+  // "build to completion, don't pause for approval, then exit" prompt, AND wrap
+  // the pane command so the harness writes the sentinel deterministically on
+  // agent exit (instead of trusting the model to). Pairs with `agent wait`.
+  autonomous: Schema.optional(Schema.Boolean),
+  // The verification command the harness runs on autonomous-agent exit to decide
+  // the sentinel's status (exit 0 → done, non-zero → failed), e.g.
+  // ["bun", "run", "check"]. Only consulted when `autonomous` is on; if unset,
+  // the agent's own exit code is the fallback signal.
+  check: Schema.optional(Schema.Array(Schema.String).check(Schema.isMinLength(1))),
 });
 export type AgentConfigData = typeof AgentConfigDataSchema.Type;
 export const AGENT_DATA_FIELDS = [
@@ -68,6 +78,8 @@ export const AGENT_DATA_FIELDS = [
   "readyTimeoutMs",
   "trustPrompt",
   "statusFile",
+  "autonomous",
+  "check",
 ] as const satisfies ReadonlyArray<keyof AgentConfigData>;
 
 export const IssuesConfigDataSchema = Schema.Struct({

@@ -97,6 +97,12 @@ export default {
     // statusFile: true,                    // append "write .homestead/agent-status.json when you
     //                                      // finish" to the kickoff prompt so `homestead agent wait`
     //                                      // can block on the agent (default true; set false to opt out)
+    // autonomous: true,                    // unattended fan-out: drop the "show me your plan" gate so the
+    //                                      // agent builds to completion, AND wrap the pane so the harness
+    //                                      // writes .homestead/agent-status.json deterministically on exit
+    //                                      // (instead of trusting the model). Pairs with `agent wait`.
+    // check: ["bun", "run", "check"],      // autonomous-only: the harness runs this on agent exit; exit 0 ->
+    //                                      // done, non-zero -> failed. Omit to fall back to the agent's exit code.
     // prompt: (ctx) =>
     //   `Work GitHub issue #${ctx.item.number} (${ctx.item.url}). Read the issue and propose a plan.`,
   },

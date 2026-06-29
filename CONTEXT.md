@@ -44,6 +44,21 @@ The per-project description of how to launch an agent: the launch argv (`command
 `surface`, the `readyMarker` / `trustPrompt`, and the `prompt(ctx)` callback. Swapping
 Claude for another agent, or changing the kickoff, is a config edit — no code change.
 
+### Autonomous mode
+The unattended variant of a launch (`agent.autonomous`). The kickoff drops the
+plan-gate ("show me your plan") so the agent builds to completion without a human
+approving a plan, and the agent process is wrapped so that **the harness** — not the
+model — writes the done-signal (the agent sentinel) when the agent exits. The verdict
+comes from the configured **check** command (exit 0 → done, non-zero → failed); a
+genuine `blocked` the agent self-reports is left untouched. Built for fan-out where no
+human is watching each pane.
+
+### Check command
+The verification command (`agent.check`, e.g. `bun run check`) the harness runs the
+moment an autonomous agent exits, to decide the sentinel's status deterministically.
+Distinct from `pr.checks`, which is only named in a PR kickoff prompt for the agent to
+run itself.
+
 ### Issue states
 The label-driven lifecycle, reflected onto the GitHub issue (opt-in via config):
 `agent:ready` (queued, a human convention) → `agent:wip` (homestead launched an agent on

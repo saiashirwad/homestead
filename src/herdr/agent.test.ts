@@ -92,6 +92,54 @@ test("launchAgent still seeds the issue-templated prompt", async () => {
   expect(sendText[0]!.text).toContain('#7: "Fix the thing"');
 }, 20000);
 
+// --- autonomous mode: wrapped pane command ----------------------------------
+
+test("non-autonomous launch runs the agent binary directly", async () => {
+  const runs = await Effect.runPromise(
+    Effect.gen(function* () {
+      const handle = yield* HerdrTestHandle;
+      yield* handle.script("pane-1", ["❯ "]);
+      yield* launchFreeAgent({
+        config: {},
+        plan: fakePlan("my-slug"),
+        slug: "my-slug",
+        branch: "my-slug",
+        repoName: "r",
+        agent: fastAgent(),
+        prompt: "do the thing",
+      });
+      return (yield* handle.journal()).runs;
+    }).pipe(Effect.provide(TestLayer)),
+  );
+  expect(runs.length).toBe(1);
+  expect(runs[0]!.command).toBe("claude");
+}, 20000);
+
+test("autonomous launch wraps the pane command in sh -c with a finalize tail", async () => {
+  const runs = await Effect.runPromise(
+    Effect.gen(function* () {
+      const handle = yield* HerdrTestHandle;
+      yield* handle.script("pane-1", ["❯ "]);
+      yield* launchFreeAgent({
+        config: {},
+        plan: fakePlan("my-slug"),
+        slug: "my-slug",
+        branch: "my-slug",
+        repoName: "r",
+        agent: fastAgent({ autonomous: true }),
+        prompt: "do the thing",
+      });
+      return (yield* handle.journal()).runs;
+    }).pipe(Effect.provide(TestLayer)),
+  );
+  expect(runs.length).toBe(1);
+  expect(runs[0]!.command).toBe("sh");
+  expect(runs[0]!.args[0]).toBe("-c");
+  const script = runs[0]!.args[1]!;
+  expect(script).toContain("'claude'");
+  expect(script).toContain("agent finalize --agent-exit");
+}, 20000);
+
 // --- [dispatched] / [auto] routing for spawned (auto) agents ----------------
 
 test("findOrCreateWorkspace reuses an existing workspace with the label", async () => {

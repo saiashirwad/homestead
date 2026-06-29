@@ -20,9 +20,31 @@ export const STATUS_FILE_INSTRUCTION =
   `decision or an external dependency; "failed" if you tried and could not finish. Write this file ` +
   `last, as the final thing you do.`;
 
-const withStatusInstruction =
-  (base: (ctx: AgentPromptContext) => string) =>
-  (ctx: AgentPromptContext): string => base(ctx) + STATUS_FILE_INSTRUCTION;
+// The autonomous-mode tail. Unlike STATUS_FILE_INSTRUCTION it (a) tells the
+// agent to exit the session as its final act — that exit is what triggers the
+// harness's deterministic `agent finalize` — and (b) explains that the harness
+// owns the final status (so the model only needs a best-effort summary, and a
+// genuine "blocked" is still honored).
+export const AUTONOMOUS_STATUS_INSTRUCTION =
+  `\n\n---\n` +
+  `Work autonomously to completion — do NOT pause for plan approval or permission. ` +
+  `When you believe you are done (or are genuinely blocked), your final actions, in order, must be:\n` +
+  `1. Write \`.homestead/agent-status.json\` (relative to this worktree root) with exactly this shape: ` +
+  `{ "status": "done" | "blocked" | "failed", "summary": "<one short paragraph, plain English, what you ` +
+  `did and the current state>" } — set "blocked" only if a human decision or external dependency is ` +
+  `genuinely required.\n` +
+  `2. Exit the agent session (e.g. type \`/exit\`).\n` +
+  `After you exit, the harness runs the project's check and writes the authoritative status from the ` +
+  `result; your "summary" is preserved, and a "blocked" status is respected.`;
+
+// The status-instruction tail to append to a kickoff: none when the agent opts
+// out of the sentinel contract, the autonomous variant in autonomous mode, else
+// the default best-effort instruction. Shared by the issue path
+// (resolveAgentDefaults) and `agent spawn` (seedSpawnPrompt).
+export const statusInstructionFor = (agent: AgentConfig): string => {
+  if (agent.statusFile === false) return "";
+  return agent.autonomous ? AUTONOMOUS_STATUS_INSTRUCTION : STATUS_FILE_INSTRUCTION;
+};
 
 export const defaultAgentPrompt = (ctx: AgentPromptContext): string => {
   const item = ctx.item;
@@ -31,6 +53,20 @@ export const defaultAgentPrompt = (ctx: AgentPromptContext): string => {
     `#${item.number}: "${item.title}"\n${item.url}\n\n` +
     `Read the issue carefully and explore this worktree until you understand exactly what needs to be done. ` +
     `Then show me your plan before you start implementing.`
+  );
+};
+
+// The no-plan-gate kickoff used in autonomous mode: same issue framing as
+// `defaultAgentPrompt`, but it tells the agent to build to completion instead of
+// parking at a plan for approval.
+export const autonomousAgentPrompt = (ctx: AgentPromptContext): string => {
+  const item = ctx.item;
+  return (
+    `This is the issue you need to implement:\n\n` +
+    `#${item.number}: "${item.title}"\n${item.url}\n\n` +
+    `Read the issue, explore this worktree, and implement it fully and autonomously. ` +
+    `Do not stop to show a plan or ask for approval — build the change to completion and keep it ` +
+    `consistent with the codebase's conventions.`
   );
 };
 
@@ -57,11 +93,14 @@ export const resolveAgentDefaults = (agent: AgentConfig): AgentConfig & {
         ? DEFAULT_CLAUDE_TRUST_PROMPT
         : undefined;
 
-  const basePrompt = agent.prompt ?? defaultAgentPrompt;
+  const basePrompt = agent.prompt ?? (agent.autonomous ? autonomousAgentPrompt : defaultAgentPrompt);
+  const tail = statusInstructionFor(agent);
   return {
     ...agent,
     command: typeof command === "function" ? command : (command ?? DEFAULT_AGENT_COMMAND),
     trustPrompt,
-    prompt: agent.statusFile === false ? basePrompt : withStatusInstruction(basePrompt),
+    // Keep the base function's identity when there's no tail (statusFile:false)
+    // — callers assert on it; only allocate a wrapper when we actually append.
+    prompt: tail === "" ? basePrompt : (ctx) => basePrompt(ctx) + tail,
   };
 };

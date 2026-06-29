@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { resolveAgentDefaults, resolveCommand, STATUS_FILE_INSTRUCTION } from "./defaults.ts";
+import {
+  AUTONOMOUS_STATUS_INSTRUCTION,
+  resolveAgentDefaults,
+  resolveCommand,
+  statusInstructionFor,
+  STATUS_FILE_INSTRUCTION,
+} from "./defaults.ts";
 
 const ctx = { item: { number: 3, title: "t" }, args: ["--foo"] } as any;
 const promptCtx = { item: { number: 3, title: "t", url: "u" }, args: [] } as any;
@@ -36,4 +42,31 @@ test("statusFile: false suppresses the appended instruction", () => {
 test("statusFile defaults to enabled", () => {
   const prompt = resolveAgentDefaults({ prompt: () => "x" }).prompt(promptCtx);
   expect(prompt).toContain(STATUS_FILE_INSTRUCTION);
+});
+
+// --- autonomous mode ---------------------------------------------------------
+
+test("statusInstructionFor: default vs autonomous vs opted-out", () => {
+  expect(statusInstructionFor({})).toBe(STATUS_FILE_INSTRUCTION);
+  expect(statusInstructionFor({ autonomous: true })).toBe(AUTONOMOUS_STATUS_INSTRUCTION);
+  expect(statusInstructionFor({ statusFile: false })).toBe("");
+  // statusFile:false wins over autonomous (no sentinel contract at all).
+  expect(statusInstructionFor({ autonomous: true, statusFile: false })).toBe("");
+});
+
+test("autonomous mode swaps the plan-gate kickoff for build-to-completion", () => {
+  const prompt = resolveAgentDefaults({ autonomous: true }).prompt(promptCtx);
+  expect(prompt).toContain('#3: "t"');
+  expect(prompt).not.toContain("show me your plan");
+  expect(prompt).toContain("implement it fully and autonomously");
+  expect(prompt).toContain(AUTONOMOUS_STATUS_INSTRUCTION);
+});
+
+test("autonomous mode keeps a custom prompt but appends the autonomous tail", () => {
+  const prompt = resolveAgentDefaults({ autonomous: true, prompt: () => "do the thing" }).prompt(promptCtx);
+  expect(prompt).toBe("do the thing" + AUTONOMOUS_STATUS_INSTRUCTION);
+});
+
+test("autonomous tail tells the agent to exit the session", () => {
+  expect(AUTONOMOUS_STATUS_INSTRUCTION).toContain("/exit");
 });

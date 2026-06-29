@@ -31,6 +31,7 @@ import {
 import { resolveSpawnPrompt, spawnAgent } from "./agent/spawn.ts";
 import { promptAgent } from "./agent/prompt.ts";
 import { PENDING_JSON, resultForSlug } from "./agent/result.ts";
+import { finalizeAgentStatus } from "./agent/finalize.ts";
 import { resolveRepo, setupWorktree } from "./worktree/index.ts";
 import { PortAllocator } from "./worktree/ports.ts";
 import { DEFAULT_REVIEW_LABEL } from "./defaults.ts";
@@ -435,6 +436,43 @@ const agentResultCommand = Command.make(
   Command.withDescription("print a spawned agent's status sentinel as JSON (pending if not done yet)"),
 );
 
+// Invoked by the autonomous-mode pane wrapper (see agent/autonomous.ts) the
+// instant the inner agent exits — NOT a command a human runs by hand. Runs the
+// configured `agent.check` in the current worktree and writes the authoritative
+// `.homestead/agent-status.json` so `agent wait` has a deterministic signal.
+const agentFinalizeCommand = Command.make(
+  "finalize",
+  {
+    agentExit: Flag.optional(Flag.string("agent-exit")).pipe(
+      Flag.withDescription("the inner agent's exit code (the wrapper passes $? here)"),
+    ),
+  },
+  ({ agentExit }) =>
+    Effect.gen(function* () {
+      // Runs in the pane's cwd, which is the worktree itself; the config (and the
+      // sentinel we write) both live here.
+      const worktreeDir = process.cwd();
+      const config = yield* loadConfigOrUndefined(worktreeDir);
+      const exitFlag = Option.getOrUndefined(agentExit);
+      const parsedExit = exitFlag === undefined ? undefined : Number(exitFlag);
+      const agentExitCode = parsedExit !== undefined && Number.isFinite(parsedExit) ? parsedExit : undefined;
+
+      const written = yield* finalizeAgentStatus({
+        worktreeDir,
+        check: config?.agent?.check,
+        agentExit: agentExitCode,
+      });
+
+      if (Option.isNone(written)) {
+        yield* Console.log("⏸ left the existing 'blocked' status untouched");
+      } else {
+        yield* Console.log(`${statusLabel(written.value)} wrote .homestead/agent-status.json`);
+      }
+    }),
+).pipe(
+  Command.withDescription("(internal) harness-write the sentinel from the autonomous agent's exit + check"),
+);
+
 // Terminal escape sequences for the flicker-free watch redraw. The alternate
 // screen buffer (1049h/l) keeps the user's scrollback intact: we draw the live
 // table on a throwaway screen and restore the original on exit (incl. Ctrl-C).
@@ -535,7 +573,13 @@ const doctorCommand = Command.make(
 
 const agentCommand = Command.make("agent", {}).pipe(
   Command.withDescription("agent lifecycle commands"),
-  Command.withSubcommands([agentSpawnCommand, agentPromptCommand, agentResultCommand, agentWaitCommand]),
+  Command.withSubcommands([
+    agentSpawnCommand,
+    agentPromptCommand,
+    agentResultCommand,
+    agentWaitCommand,
+    agentFinalizeCommand,
+  ]),
 );
 
 const homestead = Command.make("homestead", {}).pipe(

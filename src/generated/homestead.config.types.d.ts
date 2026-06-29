@@ -126,6 +126,8 @@ export interface AgentConfig {
   readonly readyTimeoutMs?: number | undefined;
   readonly trustPrompt?: false | { readonly marker: string; readonly confirm: ReadonlyArray<string>; } | undefined;
   readonly statusFile?: boolean | undefined;
+  readonly autonomous?: boolean | undefined;
+  readonly check?: ReadonlyArray<string> | undefined;
 }
 
 export interface IssuesConfig {

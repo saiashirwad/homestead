@@ -4,7 +4,7 @@ import { launchFreeAgent } from "../herdr/agent.ts";
 import { writeAgentMarker, type AgentMarker } from "../tracking.ts";
 import { setupWorktree, type Repo } from "../worktree/index.ts";
 import type { AgentConfig, HomesteadConfig, Plan } from "../types.ts";
-import { resolveAgentDefaults, STATUS_FILE_INSTRUCTION } from "./defaults.ts";
+import { resolveAgentDefaults, statusInstructionFor } from "./defaults.ts";
 import { AGENT_STATUS_RELPATH } from "./status.ts";
 
 // Default provenance text when the caller doesn't name who spawned the agent.
@@ -13,9 +13,9 @@ export const DEFAULT_SPAWNED_BY = "agent spawn";
 // Append the status-file instruction so the spawned agent writes the sentinel
 // `result`/`wait` read — same contract as the issue path. `statusFile: false`
 // opts out (the agent then never reports and `result` can only ever say
-// `pending`).
+// `pending`); `autonomous` swaps in the build-to-completion-and-exit variant.
 export const seedSpawnPrompt = (prompt: string, agent: AgentConfig): string =>
-  agent.statusFile === false ? prompt : prompt + STATUS_FILE_INSTRUCTION;
+  prompt + statusInstructionFor(agent);
 
 // Resolve the prompt to seed from the CLI inputs:
 //   --prompt -      → read the whole brief from stdin
