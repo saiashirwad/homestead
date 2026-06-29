@@ -54,6 +54,7 @@ export const stripIssuesData = (issues: IssuesConfig | undefined): IssuesConfigD
   }
   if (typeof issues.assign === "boolean" || typeof issues.assign === "string") out.assign = issues.assign;
   if (typeof issues.comment === "boolean") out.comment = issues.comment;
+  if (typeof issues.concurrency === "number") out.concurrency = issues.concurrency;
   return out;
 };
 

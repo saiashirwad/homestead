@@ -6,6 +6,7 @@ import { explainTimeout } from "../herdr/errors.ts";
 import { resolveIssue, validateIssueRefs, type IssueRef } from "../issues.ts";
 import { markStarted } from "../tracking.ts";
 import { resolveAgentDefaults } from "../agent/defaults.ts";
+import { DEFAULT_LAUNCH_CONCURRENCY } from "../defaults.ts";
 import {
   type AgentConfig,
   type AgentPromptContext,
@@ -60,28 +61,32 @@ export const launchIssues = Effect.fn("homestead/launch-issues")(function* (inpu
   yield* Console.log(`Issues: ${refs.map((r) => `#${r.number}`).join(", ")}`);
   const items = yield* Effect.forEach(refs, resolveIssue);
 
-  // Sequential: port allocation reads sibling .env files; parallel setup causes collisions.
-  const launched = yield* Effect.forEach(items, (item) =>
-    launchIssue({
-      config,
-      repo,
-      item,
-      branch: branchOf(item),
-      agent,
-      issueConfig,
-    }).pipe(
-      Effect.as(true),
-      Effect.catchTags({
-        HerdrError: (e) =>
-          Console.log(`  ⚠ #${item.number}: launch failed (${e.op}) — skipping`).pipe(Effect.as(false)),
-        HerdrNotAvailable: (e) =>
-          Console.log(`  ⚠ #${item.number}: ${e.reason} — skipping`).pipe(Effect.as(false)),
-        HerdrTimeout: (e) =>
-          Console.log(`  ⚠ #${item.number}: ${explainTimeout(e)} — skipping`).pipe(
-            Effect.as(false),
-          ),
-      }),
-    ),
+  // Bounded-parallel: the PortAllocator semaphore (in-process) + the reservations
+  // registry (cross-process) make port picks race-free, so worktrees can provision
+  // concurrently. `concurrency` is config-driven, conservative default.
+  const concurrency = issueConfig?.concurrency ?? DEFAULT_LAUNCH_CONCURRENCY;
+  const launched = yield* Effect.forEach(
+    items,
+    (item) =>
+      launchIssue({
+        config,
+        repo,
+        item,
+        branch: branchOf(item),
+        agent,
+        issueConfig,
+      }).pipe(
+        Effect.as(true),
+        Effect.catchTags({
+          HerdrError: (e) =>
+            Console.log(`  ⚠ #${item.number}: launch failed (${e.op}) — skipping`).pipe(Effect.as(false)),
+          HerdrNotAvailable: (e) =>
+            Console.log(`  ⚠ #${item.number}: ${e.reason} — skipping`).pipe(Effect.as(false)),
+          HerdrTimeout: (e) =>
+            Console.log(`  ⚠ #${item.number}: ${explainTimeout(e)} — skipping`).pipe(Effect.as(false)),
+        }),
+      ),
+    { concurrency },
   );
 
   const ok = launched.filter(Boolean).length;
