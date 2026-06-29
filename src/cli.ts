@@ -27,6 +27,7 @@ import {
   waitForAgent,
 } from "./agent/wait.ts";
 import { resolveSpawnPrompt, spawnAgent } from "./agent/spawn.ts";
+import { promptAgent } from "./agent/prompt.ts";
 import { PENDING_JSON, resultForSlug } from "./agent/result.ts";
 import { resolveRepo, setupWorktree } from "./worktree/index.ts";
 import { DEFAULT_REVIEW_LABEL } from "./defaults.ts";
@@ -363,6 +364,41 @@ const agentSpawnCommand = Command.make(
   Command.withDescription("provision an issue-less worktree + boot an agent on a free-form prompt"),
 );
 
+const agentPromptCommand = Command.make(
+  "prompt",
+  {
+    slug: Argument.string("slug").pipe(Argument.withDescription("slug passed to `agent spawn`")),
+    promptWords: Argument.string("prompt").pipe(
+      Argument.variadic(),
+      Argument.withDescription("follow-up text to send (positional words are joined)"),
+    ),
+    promptFlag: Flag.optional(Flag.string("prompt")).pipe(
+      Flag.withDescription("follow-up text (alternative to positional); '--prompt -' reads stdin"),
+    ),
+  },
+  ({ slug, promptWords, promptFlag }) =>
+    Effect.gen(function* () {
+      const text = yield* resolveSpawnPrompt(
+        promptWords,
+        promptFlag,
+        Effect.promise(() => Bun.stdin.text()),
+        "agent prompt",
+      ).pipe(Effect.catchTag("UsageError", (e) => fail(e.message)));
+
+      const repo = yield* resolveRepo();
+      const config = yield* loadConfigOrUndefined(repo.primaryRoot);
+
+      yield* promptAgent({ repoName: repo.repoName, slug, text, config }).pipe(
+        Effect.catchTags({
+          UsageError: (e) => fail(e.message),
+          HerdrError: (e) => fail(`[homestead] couldn't send to the agent's pane (${e.op})`),
+        }),
+      );
+    }),
+).pipe(
+  Command.withDescription("send a follow-up turn to a running spawned agent (resolved by slug)"),
+);
+
 const agentResultCommand = Command.make(
   "result",
   {
@@ -404,7 +440,7 @@ const lsCommand = Command.make("ls", {}, () =>
 
 const agentCommand = Command.make("agent", {}).pipe(
   Command.withDescription("agent lifecycle commands"),
-  Command.withSubcommands([agentSpawnCommand, agentResultCommand, agentWaitCommand]),
+  Command.withSubcommands([agentSpawnCommand, agentPromptCommand, agentResultCommand, agentWaitCommand]),
 );
 
 const homestead = Command.make("homestead", {}).pipe(

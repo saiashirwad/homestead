@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { Effect } from "effect";
-import { launchAndSeed, toSpec } from "./launch.ts";
+import { launchAndSeed, seedPrompt, toSpec } from "./launch.ts";
 import { Herdr } from "./service.ts";
 import { HerdrTest, HerdrTestHandle } from "./test.ts";
 import { resolveAgentDefaults } from "../agent/defaults.ts";
@@ -49,6 +49,24 @@ const fastLaunch = {
   trustTimeoutMs: 200,
   readyTimeoutMs: 200,
 } as const;
+
+test("seedPrompt emits sendText then sendKeys(Enter) for the pane", async () => {
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const handle = yield* HerdrTestHandle;
+      const herdr = yield* Herdr;
+      const paneId = yield* herdr.createSurface("worktree", "/tmp/wt", "follow-up");
+
+      yield* seedPrompt(paneId, "now open the PR", { submitPauseMs: 0 });
+
+      const journal = yield* handle.journal();
+      // No boot/run — seedPrompt is only the submit tail.
+      expect(journal.runs).toEqual([]);
+      expect(journal.sendText).toEqual([{ paneId, text: "now open the PR" }]);
+      expect(journal.sendKeys).toEqual([{ paneId, keys: ["Enter"] }]);
+    }).pipe(Effect.provide(HerdrTest)),
+  );
+});
 
 test("launchAndSeed clears trust gate then seeds prompt", async () => {
   await Effect.runPromise(

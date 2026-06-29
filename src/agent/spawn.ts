@@ -22,17 +22,20 @@ export const seedSpawnPrompt = (prompt: string, agent: AgentConfig): string =>
 //   --prompt <text> → that text
 //   [prompt...]     → positional words joined with spaces
 // No source at all is a usage error (we won't boot an agent with an empty brief).
+// `command` names the subcommand in error text so `agent prompt` reuses this
+// resolver verbatim while still pointing the user at the right command.
 export const resolveSpawnPrompt = (
   positional: ReadonlyArray<string>,
   flag: Option.Option<string>,
   readStdin: Effect.Effect<string>,
+  command = "agent spawn",
 ): Effect.Effect<string, UsageError> =>
   Effect.gen(function* () {
     if (Option.isSome(flag)) {
       if (flag.value === "-") {
         const stdin = (yield* readStdin).trim();
         if (stdin === "") {
-          return yield* new UsageError({ message: "[homestead] agent spawn: --prompt - got empty stdin." });
+          return yield* new UsageError({ message: `[homestead] ${command}: --prompt - got empty stdin.` });
         }
         return stdin;
       }
@@ -41,7 +44,7 @@ export const resolveSpawnPrompt = (
     if (positional.length > 0) return positional.join(" ");
     return yield* new UsageError({
       message:
-        "[homestead] agent spawn needs a prompt — pass it positionally, via --prompt <text>, or pipe it with --prompt -.",
+        `[homestead] ${command} needs a prompt — pass it positionally, via --prompt <text>, or pipe it with --prompt -.`,
     });
   });
 

@@ -42,6 +42,21 @@ export const toSpec = (agent: AgentConfigWithResolvedCommand): AgentSpec => {
   };
 };
 
+// The submit handshake shared by the initial launch and a follow-up `agent
+// prompt` turn: type the text, give the agent a beat to render it, then press
+// Enter. Pulled out so both paths emit the exact same sequence with one pause
+// constant — see DEFAULT_SUBMIT_PAUSE_MS above.
+export const seedPrompt = Effect.fn("herdr/seed-prompt")(function* (
+  paneId: string,
+  text: string,
+  options?: { readonly submitPauseMs?: number },
+) {
+  const herdr = yield* Herdr;
+  yield* herdr.pane.sendText(paneId, text);
+  yield* Effect.sleep(`${options?.submitPauseMs ?? DEFAULT_SUBMIT_PAUSE_MS} millis`);
+  yield* herdr.pane.sendKeys(paneId, "Enter");
+});
+
 export const launchAndSeed = Effect.fn("herdr/launch-and-seed")(function* (
   paneId: string,
   spec: AgentSpec,
@@ -72,7 +87,5 @@ export const launchAndSeed = Effect.fn("herdr/launch-and-seed")(function* (
     pollMs,
   });
 
-  yield* herdr.pane.sendText(paneId, prompt);
-  yield* Effect.sleep(`${options?.submitPauseMs ?? DEFAULT_SUBMIT_PAUSE_MS} millis`);
-  yield* herdr.pane.sendKeys(paneId, "Enter");
+  yield* seedPrompt(paneId, prompt, { submitPauseMs: options?.submitPauseMs });
 });

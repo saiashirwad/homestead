@@ -27,6 +27,10 @@ export interface HerdrTestApi {
   readonly journal: () => Effect.Effect<HerdrTestJournal>;
   /** Make the next (and subsequent) `worktree.remove` calls fail with this error; pass undefined to clear. */
   readonly failRemove: (error: HerdrError | undefined) => Effect.Effect<void>;
+  /** Make `pane.read` for this pane fail with the given error; pass undefined to clear. */
+  readonly failRead: (paneId: string, error: HerdrError | undefined) => Effect.Effect<void>;
+  /** Make `pane.send-text` for this pane fail with the given error; pass undefined to clear. */
+  readonly failSendText: (paneId: string, error: HerdrError | undefined) => Effect.Effect<void>;
 }
 
 export class HerdrTestHandle extends Context.Service<HerdrTestHandle, HerdrTestApi>()("HerdrTestHandle") {}
@@ -50,11 +54,15 @@ const buildHerdrTest = Effect.gen(function* () {
   const nextWorkspaceId = yield* Ref.make(1);
   const journal = yield* Ref.make(emptyJournal());
   const removeFailure = yield* Ref.make<HerdrError | undefined>(undefined);
+  const readFailures = yield* Ref.make(new Map<string, HerdrError>());
+  const sendTextFailures = yield* Ref.make(new Map<string, HerdrError>());
 
   const paneRead = Effect.fn("herdr-test/pane-read")(function* (
     paneId: string,
     _options?: { readonly source?: string; readonly lines?: number },
   ) {
+    const failure = (yield* Ref.get(readFailures)).get(paneId);
+    if (failure !== undefined) return yield* failure;
     const queues = yield* Ref.get(readQueues);
     const indices = yield* Ref.get(readIndex);
     const queue = queues.get(paneId);
@@ -93,6 +101,22 @@ const buildHerdrTest = Effect.gen(function* () {
     journal: () => Ref.get(journal),
 
     failRemove: (error) => Ref.set(removeFailure, error),
+
+    failRead: (paneId, error) =>
+      Ref.update(readFailures, (map) => {
+        const next = new Map(map);
+        if (error === undefined) next.delete(paneId);
+        else next.set(paneId, error);
+        return next;
+      }),
+
+    failSendText: (paneId, error) =>
+      Ref.update(sendTextFailures, (map) => {
+        const next = new Map(map);
+        if (error === undefined) next.delete(paneId);
+        else next.set(paneId, error);
+        return next;
+      }),
   };
 
   const herdr: typeof Herdr.Service = {
@@ -138,10 +162,14 @@ const buildHerdrTest = Effect.gen(function* () {
         })),
 
       sendText: (paneId: string, text: string) =>
-        Ref.update(journal, (j) => ({
-          ...j,
-          sendText: [...j.sendText, { paneId, text }],
-        })),
+        Effect.gen(function* () {
+          const failure = (yield* Ref.get(sendTextFailures)).get(paneId);
+          if (failure !== undefined) return yield* failure;
+          yield* Ref.update(journal, (j) => ({
+            ...j,
+            sendText: [...j.sendText, { paneId, text }],
+          }));
+        }),
 
       sendKeys: (paneId: string, ...keys: ReadonlyArray<string>) =>
         Ref.update(journal, (j) => ({

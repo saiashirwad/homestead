@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Effect, FileSystem, Path, Schema } from "effect";
 
 // The sentinel the *agent* writes inside its own worktree when it stops. This is
 // distinct from homestead's tracking state (~/.homestead/state/...): that is
@@ -17,3 +17,16 @@ export const AgentStatusFileSchema = Schema.Struct({
   at: Schema.optional(Schema.String), // ISO-8601, best-effort, written by the agent
 });
 export type AgentStatusFile = typeof AgentStatusFileSchema.Type;
+
+// Remove the sentinel so a *new* turn's `agent wait` blocks instead of reading
+// the previous turn's stale `done`. Missing file is a no-op (orElseSucceed) —
+// same forgiving pattern as tracking.ts's teardown removals. `relpath` defaults
+// to AGENT_STATUS_RELPATH but honors a marker's recorded statusFile path.
+export const clearAgentStatus = Effect.fn("homestead/clear-agent-status")(function* (
+  worktreeDir: string,
+  relpath: string = AGENT_STATUS_RELPATH,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  yield* fs.remove(path.join(worktreeDir, relpath)).pipe(Effect.orElseSucceed(() => undefined));
+});
