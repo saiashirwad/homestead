@@ -21,6 +21,34 @@ import type { HomesteadConfig, HomesteadContext, HomesteadServices } from "./typ
 // herdr normalizes worktree paths to realpath (/tmp -> /private/tmp), so we match the
 // herdr-side worktree by branch, not path.
 
+// Ask herdr to remove the worktree's pane/workspace. A herdr failure must NOT
+// abort the git-side teardown, but it also must not be swallowed: when herdr
+// can't remove the worktree, the pane and every dev server inside it keep
+// running (orphaned), so we name the real failure (op + cause) and tell the user
+// how to find the leftover pane instead of logging a generic "continuing".
+export const removeHerdrWorktree = Effect.fn("homestead/remove-herdr-worktree")(function* (
+  primaryRoot: string,
+  branch: string,
+) {
+  const herdr = yield* Herdr;
+  const wsId = yield* herdr.worktree.findOpenWorkspaceId(primaryRoot, branch).pipe(
+    Effect.catchTag("HerdrError", () => Effect.void),
+  );
+  if (wsId === undefined) {
+    yield* Console.log(`  (no open herdr worktree for '${branch}')`);
+    return;
+  }
+  yield* Console.log(`  herdr worktree remove --workspace ${wsId} --force --json`);
+  yield* herdr.worktree.remove(wsId).pipe(
+    Effect.catchTag("HerdrError", (e) =>
+      Console.log(
+        `  ⚠ herdr remove failed (op=${e.op}): ${String(e.cause)} — pane and its dev servers may ` +
+          `still be running; run 'herdr worktree list' to check.`,
+      ),
+    ),
+  );
+});
+
 const teardownWorktree = Effect.fn("homestead/teardown-worktree")(function* (
   primaryRoot: string,
   branch: string,
@@ -28,22 +56,7 @@ const teardownWorktree = Effect.fn("homestead/teardown-worktree")(function* (
 ) {
   yield* tracking;
 
-  const herdr = yield* Herdr;
-  const wsId = yield* herdr.worktree.findOpenWorkspaceId(primaryRoot, branch).pipe(
-    Effect.catchTag("HerdrError", () => Effect.succeed(undefined)),
-  );
-  if (wsId !== undefined) {
-    yield* Console.log(`  herdr worktree remove --workspace ${wsId} --force --json`);
-    const removed = yield* herdr.worktree.remove(wsId).pipe(
-      Effect.as(true),
-      Effect.catchTag("HerdrError", () => Effect.succeed(false)),
-    );
-    if (removed === false) {
-      yield* Console.log(`  ⚠ herdr remove failed (continuing)`);
-    }
-  } else {
-    yield* Console.log(`  (no open herdr worktree for '${branch}')`);
-  }
+  yield* removeHerdrWorktree(primaryRoot, branch);
 
   const porcelain = yield* capture("git", ["worktree", "list", "--porcelain"], primaryRoot);
   const path = worktreePathForBranch(porcelain, branch);
