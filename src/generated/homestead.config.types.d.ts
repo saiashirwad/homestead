@@ -139,6 +139,7 @@ export interface IssuesConfig {
   readonly closeComment?: boolean | ((ctx: TrackingContext) => string) | undefined;
   readonly closeReason?: "completed" | "not planned" | ((ctx: HomesteadContext) => "completed" | "not planned") | undefined;
   readonly labelColor?: string | ((ctx: { label: string; kind: "wip" | "review"; }) => string) | undefined;
+  readonly base?: string | undefined;
   readonly concurrency?: number | undefined;
 }
 

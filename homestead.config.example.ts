@@ -80,6 +80,9 @@ export default {
     comment: true, // post a 🤖 start comment + 🛑 stop comment (or a function for custom text)
     reviewLabel: "agent:review", // `close` moves agent:wip here (default)
     closeComment: ({ branch, env, host }) => `${branch} was closed`,
+    // base: "integration",        // fork every `homestead issue` wave off this ref
+    //                             // instead of the default branch, so stacked
+    //                             // waves see each other's code. `--from` overrides.
   },
 
   // homestead boots an interactive agent in a herdr pane per issue, waits for its

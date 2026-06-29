@@ -78,3 +78,26 @@ test("concurrent setupWorktree provisions assign distinct ports per branch", asy
   const remaining = JSON.parse(readFileSync(registry, "utf8")).reservations as ReadonlyArray<unknown>;
   expect(remaining).toEqual([]);
 });
+
+test("setupWorktree with `from` forks the branch off an integration branch, not the default", async () => {
+  // Stack a `wave-1` integration branch on top of main with a file that ONLY it
+  // carries, then fork a new worktree off it. The forked checkout must see that
+  // file — proving we branched from `from`, not from the default branch.
+  git(repoRoot, ["checkout", "-b", "wave-1"]);
+  writeFileSync(path.join(repoRoot, "wave-1-only.txt"), "stacked\n");
+  git(repoRoot, ["add", "."]);
+  git(repoRoot, ["commit", "-m", "wave-1 work"]);
+  git(repoRoot, ["checkout", "main"]);
+
+  const repo: Repo = { startCwd: repoRoot, primaryRoot: repoRoot, repoName: path.basename(repoRoot) };
+  const config: HomesteadConfig = {
+    worktreeDir: (ctx) => path.join(worktreesRoot, ctx.slug),
+  };
+
+  const plan = await Effect.runPromise(
+    setupWorktree(config, { create: "43", from: "wave-1" }, repo).pipe(Effect.provide(Layers)),
+  );
+
+  // The integration-only file is present in the forked worktree.
+  expect(readFileSync(path.join(plan.targetDir, "wave-1-only.txt"), "utf8")).toBe("stacked\n");
+});

@@ -121,8 +121,11 @@ const issueCommand = Command.make(
   "issue",
   {
     refs: issueRef.pipe(Argument.atLeast(1), Argument.withDescription("issue number or GitHub issue URL")),
+    from: Flag.optional(Flag.string("from")).pipe(
+      Flag.withDescription("base ref to fork the wave from (default: issues.base config, else repo default branch)"),
+    ),
   },
-  ({ refs }) =>
+  ({ refs, from }) =>
     Effect.gen(function* () {
       const repo = yield* resolveRepo();
       const config = yield* loadConfig(repo.primaryRoot);
@@ -136,6 +139,7 @@ const issueCommand = Command.make(
         repo,
         agent,
         issueConfig: config.issues,
+        from: Option.getOrUndefined(from),
       }).pipe(
         Effect.catchTag("IssueRepoMismatch", (e) =>
           fail(

@@ -16,6 +16,17 @@ homestead issue 21 22 23
 
 Three worktrees, three panes, a coding agent booted in each and handed its issue.
 
+Fanning out interdependent work in waves? Stack a later wave on an integration
+branch so it sees the earlier wave's code without merging to the default branch
+first:
+
+```bash
+homestead issue 24 25 --from integration
+```
+
+`--from` overrides the default branch per-run; set `issues.base` in the config to
+make an integration base the persistent default.
+
 Tear one down when you're done:
 
 ```bash

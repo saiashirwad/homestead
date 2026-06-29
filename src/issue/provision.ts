@@ -23,12 +23,15 @@ export interface LaunchIssueInput {
   readonly branch: string;
   readonly agent: AgentConfig & { readonly prompt: (ctx: AgentPromptContext) => string };
   readonly issueConfig: IssuesConfig | undefined;
+  // Base ref to fork the worktree from (an integration branch); undefined falls
+  // back to the repo's default branch inside resolveTarget.
+  readonly from: string | undefined;
 }
 
 export const launchIssue = Effect.fn("homestead/launch-issue")(function* (input: LaunchIssueInput) {
-  const { config, repo, item, branch, agent, issueConfig } = input;
+  const { config, repo, item, branch, agent, issueConfig, from } = input;
 
-  const plan = yield* setupWorktree(config, { create: branch }, repo);
+  const plan = yield* setupWorktree(config, { create: branch, from }, repo);
 
   yield* launchAgent({
     config,
@@ -50,12 +53,23 @@ export interface LaunchIssuesInput {
   readonly repo: Repo;
   readonly agent: AgentConfig;
   readonly issueConfig: IssuesConfig | undefined;
+  // `--from` on the CLI; overrides the persistent `issues.base` config.
+  readonly from?: string | undefined;
 }
+
+// The base ref a wave forks from: an explicit `--from` flag wins, else the
+// persistent `issues.base` config, else undefined (resolveTarget then uses the
+// repo's default branch).
+export const resolveIssueBase = (
+  from: string | undefined,
+  issueConfig: IssuesConfig | undefined,
+): string | undefined => from ?? issueConfig?.base;
 
 export const launchIssues = Effect.fn("homestead/launch-issues")(function* (input: LaunchIssuesInput) {
   const { refs, config, repo, issueConfig } = input;
   const agent = resolveAgentDefaults(input.agent);
   const branchOf = issueConfig?.branch ?? ((item: WorkItem) => String(item.number));
+  const from = resolveIssueBase(input.from, issueConfig);
 
   yield* validateIssueRefs(refs);
   yield* Console.log(`Issues: ${refs.map((r) => `#${r.number}`).join(", ")}`);
@@ -75,6 +89,7 @@ export const launchIssues = Effect.fn("homestead/launch-issues")(function* (inpu
         branch: branchOf(item),
         agent,
         issueConfig,
+        from,
       }).pipe(
         Effect.as(true),
         Effect.catchTags({
