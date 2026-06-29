@@ -89,9 +89,12 @@ const worktreeCommand = Command.make(
       Flag.withDescription("target directory (default: ~/worktrees/<repo>/<slug>)"),
     ),
     noSetup: Flag.boolean("no-setup").pipe(Flag.withDescription("skip env/dependency setup")),
+    noHerdr: Flag.boolean("no-herdr").pipe(
+      Flag.withDescription("just create the worktree; don't open a herdr surface"),
+    ),
     dryRun: Flag.boolean("dry-run").pipe(Flag.withDescription("plan only; don't create anything")),
   },
-  ({ name, from, dir, noSetup, dryRun }) =>
+  ({ name, from, dir, noSetup, noHerdr, dryRun }) =>
     Effect.gen(function* () {
       const repo = yield* resolveRepo();
       const config = yield* loadConfig(repo.primaryRoot);
@@ -104,6 +107,11 @@ const worktreeCommand = Command.make(
       };
       const plan = yield* setupWorktree(config, options, repo);
       if (dryRun) return;
+
+      if (noHerdr) {
+        yield* Console.log(`\n✅ worktree '${name}' created at ${plan.targetDir}`);
+        return;
+      }
 
       const herdr = yield* Herdr;
       const pane = yield* herdr.createSurface("worktree", plan.targetDir, name).pipe(
