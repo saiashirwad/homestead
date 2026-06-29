@@ -19,6 +19,12 @@ import { launchIssues, requireAgentConfig } from "./issue/provision.ts";
 import { parsePrArg, type PrRef } from "./pr/ref.ts";
 import { launchPr } from "./pr/provision.ts";
 import { closeBranch, completeBranch, killBranch } from "./teardown.ts";
+import {
+  exitCodeFor,
+  parseCompactDuration,
+  resolveWorktreeDir,
+  waitForAgent,
+} from "./agent/wait.ts";
 import { resolveRepo, setupWorktree } from "./worktree/index.ts";
 import { DEFAULT_REVIEW_LABEL } from "./defaults.ts";
 import type { WorktreeOptions } from "./types.ts";
@@ -240,6 +246,77 @@ const prCommand = Command.make("pr", { ref: prRefArg }, ({ ref }) => runPr("work
   Command.withDescription("pull a PR into a worktree; Claude continues the work (same-repo only)"),
 );
 
+const statusLabel = (status: "done" | "blocked" | "failed"): string =>
+  status === "done" ? "✅ done —" : status === "blocked" ? "⏸ blocked —" : "❌ failed —";
+
+const agentWaitCommand = Command.make(
+  "wait",
+  {
+    target: branchTarget.pipe(
+      Argument.withDescription("branch name, issue number, or issue URL"),
+    ),
+    timeout: Flag.string("timeout").pipe(
+      Flag.withDefault("30m"),
+      Flag.withDescription("backstop wait before giving up, e.g. 30m, 45m, 2h (default 30m)"),
+    ),
+    pane: Flag.optional(Flag.string("pane")).pipe(
+      Flag.withDescription("paneId for the idle-prompt backstop (else file-or-timeout only)"),
+    ),
+    poll: Flag.string("poll").pipe(
+      Flag.withDefault("2s"),
+      Flag.withDescription("poll interval, e.g. 2s, 500ms (default 2s)"),
+    ),
+  },
+  ({ target, timeout, pane, poll }) =>
+    Effect.gen(function* () {
+      const timeoutMs = parseCompactDuration(timeout);
+      const pollMs = parseCompactDuration(poll);
+      if (timeoutMs === undefined) {
+        return yield* fail(`[homestead] invalid --timeout '${timeout}' (use e.g. 30m, 2s, 500ms)`);
+      }
+      if (pollMs === undefined) {
+        return yield* fail(`[homestead] invalid --poll '${poll}' (use e.g. 30m, 2s, 500ms)`);
+      }
+
+      const repo = yield* resolveRepo();
+      const config = yield* loadConfigOrUndefined(repo.primaryRoot);
+      const worktreeDir = yield* resolveWorktreeDir(repo.repoName, target, config);
+
+      const outcome = yield* waitForAgent({
+        worktreeDir,
+        paneId: Option.getOrUndefined(pane),
+        timeoutMs,
+        pollMs,
+      });
+
+      if (outcome._tag === "status") {
+        yield* Console.log(`\n${statusLabel(outcome.file.status)} ${outcome.file.summary}`);
+      } else if (outcome.reason === "idle-pane") {
+        yield* Console.log(
+          `\n⚠ agent parked at the prompt without writing ${worktreeDir}/.homestead/agent-status.json — no trustworthy signal`,
+        );
+      } else {
+        yield* Console.log(
+          `\n⚠ no agent-status.json after ${timeout} — agent still running, wedged, or ignored the convention`,
+        );
+      }
+
+      // Command.run only yields 0/1 on its own; set 2/3 (and 0/1) ourselves and
+      // succeed, so defaultTeardown leaves process.exitCode untouched.
+      const code = exitCodeFor(outcome);
+      yield* Effect.sync(() => {
+        process.exitCode = code;
+      });
+    }),
+).pipe(
+  Command.withDescription("block until the agent signals done/blocked/failed; exit 0/1/2/3"),
+);
+
+const agentCommand = Command.make("agent", {}).pipe(
+  Command.withDescription("agent lifecycle commands"),
+  Command.withSubcommands([agentWaitCommand]),
+);
+
 const homestead = Command.make("homestead", {}).pipe(
   Command.withDescription("config-driven worktree + interactive-agent provisioning"),
   Command.withSubcommands([
@@ -251,6 +328,7 @@ const homestead = Command.make("homestead", {}).pipe(
     completeCommand,
     reviewCommand,
     prCommand,
+    agentCommand,
   ]),
 );
 

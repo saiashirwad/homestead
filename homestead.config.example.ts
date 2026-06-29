@@ -88,6 +88,9 @@ export default {
     // readyMarker: "❯",                    // the REPL-ready glyph to poll for (default)
     // readyTimeoutMs: 30000,               // how long to wait for the REPL
     // trustPrompt: { marker: "trust this folder", confirm: ["Enter"] },  // Claude's default
+    // statusFile: true,                    // append "write .homestead/agent-status.json when you
+    //                                      // finish" to the kickoff prompt so `homestead agent wait`
+    //                                      // can block on the agent (default true; set false to opt out)
     // prompt: (ctx) =>
     //   `Work GitHub issue #${ctx.item.number} (${ctx.item.url}). Read the issue and propose a plan.`,
   },

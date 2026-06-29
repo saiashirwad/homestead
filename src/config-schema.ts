@@ -47,6 +47,10 @@ export const AgentConfigDataSchema = Schema.Struct({
   readyRegex: Schema.optional(Schema.Boolean),
   readyTimeoutMs: Schema.optional(Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0))),
   trustPrompt: Schema.optional(Schema.Union([Schema.Literal(false), TrustPromptSchema])),
+  // Opt out of the auto-appended "write .homestead/agent-status.json when you
+  // finish" instruction (default: on). `homestead agent wait` blocks on that
+  // sentinel, so disabling it makes a launched agent un-awaitable.
+  statusFile: Schema.optional(Schema.Boolean),
 });
 export type AgentConfigData = typeof AgentConfigDataSchema.Type;
 export const AGENT_DATA_FIELDS = [
@@ -56,6 +60,7 @@ export const AGENT_DATA_FIELDS = [
   "readyRegex",
   "readyTimeoutMs",
   "trustPrompt",
+  "statusFile",
 ] as const satisfies ReadonlyArray<keyof AgentConfigData>;
 
 export const IssuesConfigDataSchema = Schema.Struct({

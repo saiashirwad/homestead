@@ -87,6 +87,7 @@ This skill writes config; it does **not** create worktrees. Defer to the built-i
 
 ## Finishing
 
+- Ensure **`.homestead/`** is gitignored. A launched agent writes a per-worktree sentinel at `.homestead/agent-status.json` (how `homestead agent wait` knows the agent is done/blocked/failed) — it's agent-local runtime state, never something to commit. Add `.homestead/` to the repo's `.gitignore` if it isn't already.
 - Validate the result mentally against `homestead.config.example.ts` and `src/config-schema.ts` — same field names, same shapes. `ports`/`services`/`setup` are arrays; `env`/`agent`/`issues`/`pr` are optional objects.
 - Keep `agent: { command: ["claude"], surface: "worktree" }` unless the repo clearly uses a different agent.
 - Summarize what you derived and from where (e.g. "ports from `vite.config.ts` + `.env.example`; DB derive swaps the db-name segment"), and list any open questions you surfaced. Don't claim the config is complete if an open question is unresolved.

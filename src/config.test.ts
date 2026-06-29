@@ -83,8 +83,19 @@ test("requireAgentConfig applies default prompt when unset", async () => {
   expect(agent.command).toEqual(["claude"]);
 });
 
-test("requireAgentConfig preserves explicit prompt", async () => {
+test("requireAgentConfig keeps an explicit prompt's text, grafting the status instruction", async () => {
+  const agent = await Effect.runPromise(
+    requireAgentConfig({ command: ["claude"], prompt: () => "hello" }),
+  );
+  const rendered = agent.prompt({ item: { number: 1, title: "t", url: "u" }, args: [] } as any);
+  expect(rendered.startsWith("hello")).toBe(true);
+  expect(rendered).toContain(".homestead/agent-status.json");
+});
+
+test("requireAgentConfig with statusFile:false leaves an explicit prompt untouched", async () => {
   const prompt = () => "hello";
-  const agent = await Effect.runPromise(requireAgentConfig({ command: ["claude"], prompt }));
+  const agent = await Effect.runPromise(
+    requireAgentConfig({ command: ["claude"], prompt, statusFile: false }),
+  );
   expect(agent.prompt).toBe(prompt);
 });
