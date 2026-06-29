@@ -4,6 +4,7 @@ import { Effect, Layer } from "effect";
 import { TestConsole } from "effect/testing";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import * as childProcess from "node:child_process";
 import * as os from "node:os";
 import * as nodePath from "node:path";
 import { emit, teardownEvents, type HomesteadEvent } from "./events.ts";
@@ -120,6 +121,72 @@ test("completeBranch proceeds on spawn work with --allow-spawned", async () => {
     expect(calls.length).toBeGreaterThan(0);
     expect(ghCalls(calls)).toEqual([]);
     expect(existsSync(stateFile)).toBe(false);
+  });
+});
+
+const spawnSleeper = (): number => {
+  const child = childProcess.spawn("sleep", ["60"], { stdio: "ignore", detached: true });
+  child.unref();
+  return child.pid!;
+};
+
+const isAlive = (pid: number): boolean => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === "EPERM";
+  }
+};
+
+const waitGone = async (pid: number, timeoutMs = 2000): Promise<boolean> => {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (!isAlive(pid)) return true;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return !isAlive(pid);
+};
+
+test("teardownWorktree kills the branch's dev servers BEFORE git worktree removal", async () => {
+  await withHomestead("r", "spawn-x", spawnStateJson, async ({ primaryRoot, stateFile }) => {
+    const pid = spawnSleeper();
+    const pidFile = nodePath.join(nodePath.dirname(stateFile), `${slugify("spawn-x")}.pid`);
+    writeFileSync(pidFile, `${pid}\n`);
+
+    // Snapshot, at the moment the FIRST git subprocess runs, whether the pidfile
+    // was already removed — proving killServers (the first teardown step)
+    // completed before any git-side removal.
+    let pidfileGoneAtFirstGit: boolean | undefined;
+    const recordOrdering = (cmd: { command: string; args: ReadonlyArray<string> }) => {
+      if (cmd.command === "git" && pidfileGoneAtFirstGit === undefined) {
+        pidfileGoneAtFirstGit = !existsSync(pidFile);
+      }
+    };
+    const orderingSpawner = Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, {
+      exitCode: (cmd: { command: string; args: ReadonlyArray<string> }) =>
+        Effect.sync(() => {
+          recordOrdering(cmd);
+          return 0;
+        }),
+      string: (cmd: { command: string; args: ReadonlyArray<string> }) =>
+        Effect.sync(() => {
+          recordOrdering(cmd);
+          return "";
+        }),
+    } as unknown as ChildProcessSpawner.ChildProcessSpawner["Service"]);
+
+    const layer = Layer.provideMerge(
+      HerdrTest,
+      Layer.mergeAll(BunFileSystem.layer, BunPath.layer, orderingSpawner),
+    );
+    await Effect.runPromise(
+      completeBranch(primaryRoot, "r", "spawn-x", false, undefined, true).pipe(Effect.provide(layer)),
+    );
+
+    expect(await waitGone(pid)).toBe(true);
+    expect(existsSync(pidFile)).toBe(false);
+    expect(pidfileGoneAtFirstGit).toBe(true);
   });
 });
 

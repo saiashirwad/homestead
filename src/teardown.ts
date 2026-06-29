@@ -4,6 +4,7 @@ import { worktreePathForBranch } from "./git/porcelain.ts";
 import { Herdr } from "./herdr/service.ts";
 import { runAfterTeardown, runBeforeTeardown, type TeardownVerb } from "./hooks.ts";
 import { capture, runExit } from "./process.ts";
+import { killServers } from "./servers.ts";
 import { refExists } from "./worktree/base-ref.ts";
 import { makeContext } from "./context.ts";
 import {
@@ -51,9 +52,15 @@ export const removeHerdrWorktree = Effect.fn("homestead/remove-herdr-worktree")(
 
 const teardownWorktree = Effect.fn("homestead/teardown-worktree")(function* (
   primaryRoot: string,
+  repoName: string,
   branch: string,
   tracking: Effect.Effect<void, never, HomesteadServices>,
 ) {
+  // FIRST: kill the dev servers this worktree spawned (recorded in the state-dir
+  // pidfile, which survives `git worktree remove`). Done before tracking/herdr/git
+  // removals so ports are freed even if a later removal step fails.
+  yield* killServers(repoName, branch);
+
   yield* tracking;
 
   yield* removeHerdrWorktree(primaryRoot, branch);
@@ -149,7 +156,7 @@ const runBranchTeardown = Effect.fn("homestead/run-branch-teardown")(function* (
     return;
   }
 
-  yield* teardownWorktree(primaryRoot, branch, tracking);
+  yield* teardownWorktree(primaryRoot, repoName, branch, tracking);
   yield* deleteLocalBranch(primaryRoot, branch);
   yield* deleteRemoteBranch(primaryRoot, branch, tracked, keepRemote);
   yield* runAfterTeardown(config?.afterTeardown, ctx, verb);
@@ -195,6 +202,7 @@ export const closeBranch = Effect.fn("homestead/close-branch")(function* (
 
   yield* teardownWorktree(
     primaryRoot,
+    repoName,
     branch,
     markFinished(repoName, branch, resolvedReviewLabel, config?.issues),
   );

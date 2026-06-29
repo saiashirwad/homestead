@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { BunRuntime, BunServices } from "@effect/platform-bun";
-import { Console, Effect, Layer, Option } from "effect";
+import { Console, Effect, Layer, Option, Schedule } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import pkg from "../package.json" with { type: "json" };
 import { loadConfig, loadConfigOrUndefined } from "./config.ts";
@@ -19,7 +19,7 @@ import { launchIssues, requireAgentConfig } from "./issue/provision.ts";
 import { parsePrArg, type PrRef } from "./pr/ref.ts";
 import { launchPr } from "./pr/provision.ts";
 import { closeBranch, completeBranch, killBranch } from "./teardown.ts";
-import { collectDashboard, renderTable } from "./dashboard.ts";
+import { renderDashboard } from "./dashboard.ts";
 import { runGc } from "./gc.ts";
 import { runDoctor } from "./doctor.ts";
 import {
@@ -431,17 +431,57 @@ const agentResultCommand = Command.make(
   Command.withDescription("print a spawned agent's status sentinel as JSON (pending if not done yet)"),
 );
 
-const lsCommand = Command.make("ls", {}, () =>
-  Effect.gen(function* () {
-    const repo = yield* resolveRepo();
-    const config = yield* loadConfigOrUndefined(repo.primaryRoot);
-    const rows = yield* collectDashboard(repo, config);
-    if (rows.length === 0) {
-      yield* Console.log("No linked worktrees.");
-      return;
-    }
-    yield* Console.log(renderTable(rows));
-  }),
+// Terminal escape sequences for the flicker-free watch redraw. The alternate
+// screen buffer (1049h/l) keeps the user's scrollback intact: we draw the live
+// table on a throwaway screen and restore the original on exit (incl. Ctrl-C).
+const ALT_SCREEN_ENTER = "\x1b[?1049h";
+const ALT_SCREEN_EXIT = "\x1b[?1049l";
+const CURSOR_HOME_CLEAR = "\x1b[H\x1b[2J";
+
+const writeStdout = (s: string) => Effect.sync(() => void process.stdout.write(s));
+
+// `ls --watch`: re-render the read-only dashboard in place every `intervalSeconds`.
+// acquireUseRelease guarantees the alt-screen is restored even on interrupt
+// (Ctrl-C), so the user's pre-watch scrollback survives. The loop body is exactly
+// the one-shot render — strictly read-only, no tracking/teardown/herdr mutations.
+const watchDashboard = (
+  repo: Parameters<typeof renderDashboard>[0],
+  config: Parameters<typeof renderDashboard>[1],
+  intervalSeconds: number,
+) =>
+  Effect.acquireUseRelease(
+    writeStdout(ALT_SCREEN_ENTER),
+    () =>
+      renderDashboard(repo, config).pipe(
+        Effect.flatMap((frame) => writeStdout(`${CURSOR_HOME_CLEAR}${frame}\n`)),
+        Effect.repeat({ schedule: Schedule.spaced(`${intervalSeconds} seconds`) }),
+      ),
+    () => writeStdout(ALT_SCREEN_EXIT),
+  );
+
+const lsCommand = Command.make(
+  "ls",
+  {
+    watch: Flag.boolean("watch").pipe(
+      Flag.withAlias("w"),
+      Flag.withDescription("auto-refresh the table in place until Ctrl-C (read-only)"),
+    ),
+    interval: Flag.integer("interval").pipe(
+      Flag.withAlias("n"),
+      Flag.withDefault(2),
+      Flag.withDescription("watch refresh interval in seconds (default 2)"),
+    ),
+  },
+  ({ watch, interval }) =>
+    Effect.gen(function* () {
+      const repo = yield* resolveRepo();
+      const config = yield* loadConfigOrUndefined(repo.primaryRoot);
+      if (!watch) {
+        yield* Console.log(yield* renderDashboard(repo, config));
+        return;
+      }
+      yield* watchDashboard(repo, config, interval);
+    }),
 ).pipe(Command.withDescription("read-only dashboard: one row per worktree (ports, DB, agent, pane, origin)"));
 
 const gcCommand = Command.make(

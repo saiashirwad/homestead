@@ -13,6 +13,11 @@ export { HerdrError, HerdrNotAvailable, HerdrTimeout } from "./src/herdr/errors.
 export { HerdrTest } from "./src/herdr/test.ts";
 export { toSpec } from "./src/herdr/launch.ts";
 export { launchIssue, launchIssues } from "./src/issue/provision.ts";
+// Dev-server PID tracking — for an afterSetup/afterLaunch hook that starts a
+// per-worktree dev server: spawnDetached(...) it, then recordServerPid(...) the
+// PID so teardown (kill/close/complete) can kill it and free its port.
+export { killPid, spawnDetached } from "./src/process.ts";
+export { recordServerPid, serverPidPath } from "./src/servers.ts";
 export type { LaunchAgentInput } from "./src/herdr/agent.ts";
 export type { LaunchIssueInput, LaunchIssuesInput } from "./src/issue/provision.ts";
 export { ConfigInvalid, ConfigNotFound, ServiceUnavailable } from "./src/errors.ts";

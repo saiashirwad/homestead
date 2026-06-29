@@ -4,7 +4,7 @@ import { Context, Effect, FileSystem, Layer, Path } from "effect";
 import type { ChildProcessSpawner } from "effect/unstable/process";
 import * as fsSync from "node:fs";
 import * as os from "node:os";
-import { collectDashboard, renderTable, type AgentState, type DashboardRow } from "./dashboard.ts";
+import { collectDashboard, renderDashboard, renderTable, type AgentState, type DashboardRow } from "./dashboard.ts";
 import { Herdr } from "./herdr/service.ts";
 import { HerdrError } from "./herdr/errors.ts";
 import { openWorkspaceIdForBranch, type WorktreeEntry } from "./herdr/types.ts";
@@ -83,6 +83,13 @@ const collect = (
   herdr?: Layer.Layer<Herdr>,
   repo: Repo = REPO,
 ) => run(collectDashboard(repo, config, Effect.succeed(list)), herdr);
+
+const renderOnce = (
+  config: HomesteadConfig | undefined,
+  list: string,
+  herdr?: Layer.Layer<Herdr>,
+  repo: Repo = REPO,
+) => run(renderDashboard(repo, config, Effect.succeed(list)), herdr);
 
 const CONFIG: HomesteadConfig = {
   ports: [{ key: "WEB", base: 3000 }, { key: "API", base: 4000 }],
@@ -228,6 +235,26 @@ test("origin: provenance marker ⇒ [auto] + spawnedBy; absent ⇒ you", async (
   const bySlug = new Map(rows.map((r) => [r.slug, r.origin]));
   expect(bySlug.get("auto_b")).toEqual({ auto: true, spawnedBy: "agent spawn" });
   expect(bySlug.get("mine_b")).toEqual({ auto: false, spawnedBy: undefined });
+});
+
+// ---------------------------------------------------------------------------
+// renderDashboard — one watch tick == one-shot `ls` (shared render)
+// ---------------------------------------------------------------------------
+
+test("renderDashboard returns exactly renderTable(rows) — one tick == one-shot ls", async () => {
+  const wt = `${sandbox}/wt/auth-rework`;
+  writeFile(`${wt}/.env`, "WEB=3001\nAPI=4001\nDATABASE_URL=hs_authrework\n");
+  writeTrackingState("auth-rework", { number: 142, url: "u", title: "Auth rework" });
+  const list = porcelain([{ path: "/repo/primary", branch: "main" }, { path: wt, branch: "auth-rework" }]);
+
+  const rows = await collect(CONFIG, list);
+  const frame = await renderOnce(CONFIG, list);
+  expect(frame).toBe(renderTable(rows));
+});
+
+test("renderDashboard shows the empty sentinel when there are no linked worktrees", async () => {
+  const frame = await renderOnce(CONFIG, porcelain([{ path: "/repo/primary", branch: "main" }]));
+  expect(frame).toBe("No linked worktrees.");
 });
 
 // ---------------------------------------------------------------------------

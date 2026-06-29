@@ -1,5 +1,6 @@
 import { Console, Effect, Schedule } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import * as childProcess from "node:child_process";
 import * as net from "node:net";
 
 // Subprocess + probe primitives, ported from worktree-setup.ts to Effect 4. The
@@ -66,6 +67,42 @@ export const capture = Effect.fn("homestead/capture")(function* (
   const out = yield* spawner.string(cmd).pipe(Effect.orDie);
   return out.trim();
 });
+
+// Spawn a long-lived background process detached from homestead's own lifetime
+// and return its PID. Unlike runExit/capture (whose children die with the Effect
+// scope via ChildProcessSpawner), this uses node:child_process with
+// `detached: true` + `unref()` so the child keeps running after homestead exits.
+// A hook starts a per-worktree dev server this way, then hands the PID to
+// recordServerPid so teardown can kill it later. stdio is "ignore" so the
+// detached child doesn't tie up homestead's pipes.
+export const spawnDetached = (
+  command: string,
+  args: ReadonlyArray<string>,
+  options?: RunOptions,
+): Effect.Effect<number> =>
+  Effect.sync(() => {
+    const child = childProcess.spawn(command, [...args], {
+      ...makeOptions(options),
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+    if (child.pid === undefined) {
+      throw new Error(`[homestead] spawnDetached: ${command} produced no pid`);
+    }
+    return child.pid;
+  });
+
+// Send `signal` (default SIGTERM) to `pid`, swallowing ESRCH — i.e. a PID that's
+// already gone is a no-op. Other errors (e.g. EPERM) propagate. Reused by
+// killServers.
+export const killPid = (pid: number, signal: NodeJS.Signals | number = "SIGTERM"): void => {
+  try {
+    process.kill(pid, signal);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ESRCH") throw e;
+  }
+};
 
 // TCP liveness probe (no platform equivalent) — tells whether a shared service
 // (e.g. docker Postgres) is up before we lean on it.
