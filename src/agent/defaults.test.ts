@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 import {
+  autonomousAgentPrompt,
   AUTONOMOUS_STATUS_INSTRUCTION,
+  defaultAgentPrompt,
   resolveAgentDefaults,
   resolveCommand,
   statusInstructionFor,
@@ -69,4 +71,17 @@ test("autonomous mode keeps a custom prompt but appends the autonomous tail", ()
 
 test("autonomous tail tells the agent to exit the session", () => {
   expect(AUTONOMOUS_STATUS_INSTRUCTION).toContain("/exit");
+});
+
+// --- per-issue contract skill hint -------------------------------------------
+
+test("default kickoff points a skill-capable agent at homestead-agent-task", () => {
+  expect(defaultAgentPrompt(promptCtx)).toContain("homestead-agent-task");
+});
+
+test("autonomous kickoff points a skill-capable agent at homestead-agent-task", () => {
+  const prompt = autonomousAgentPrompt(promptCtx);
+  expect(prompt).toContain("homestead-agent-task");
+  // The hint must stay clear of the plan-gate wording the autonomous path drops.
+  expect(prompt).not.toContain("show me your plan");
 });

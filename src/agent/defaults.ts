@@ -46,13 +46,22 @@ export const statusInstructionFor = (agent: AgentConfig): string => {
   return agent.autonomous ? AUTONOMOUS_STATUS_INSTRUCTION : STATUS_FILE_INSTRUCTION;
 };
 
+// One-line pointer to the per-issue contract skill, woven into both kickoffs. A
+// skill-capable agent (Claude) can load it for the full scope/verify/sentinel/
+// commit-not-merge rules; non-skill agents ignore it and still get the inline
+// status tail. Deliberately free of plan-gate wording so it suits both kickoffs.
+export const AGENT_TASK_SKILL_HINT =
+  `If your agent supports skills, load the \`homestead-agent-task\` skill first — it is the contract ` +
+  `for working in this worktree: scope to this one issue, verify before claiming done, and commit but never merge.`;
+
 export const defaultAgentPrompt = (ctx: AgentPromptContext): string => {
   const item = ctx.item;
   return (
     `This is the issue you need to implement:\n\n` +
     `#${item.number}: "${item.title}"\n${item.url}\n\n` +
     `Read the issue carefully and explore this worktree until you understand exactly what needs to be done. ` +
-    `Then show me your plan before you start implementing.`
+    `Then show me your plan before you start implementing.\n\n` +
+    AGENT_TASK_SKILL_HINT
   );
 };
 
@@ -66,7 +75,8 @@ export const autonomousAgentPrompt = (ctx: AgentPromptContext): string => {
     `#${item.number}: "${item.title}"\n${item.url}\n\n` +
     `Read the issue, explore this worktree, and implement it fully and autonomously. ` +
     `Do not stop to show a plan or ask for approval — build the change to completion and keep it ` +
-    `consistent with the codebase's conventions.`
+    `consistent with the codebase's conventions.\n\n` +
+    AGENT_TASK_SKILL_HINT
   );
 };
 
