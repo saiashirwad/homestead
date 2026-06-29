@@ -306,7 +306,7 @@ const agentWaitCommand = Command.make(
         yield* Console.log(`\n${statusLabel(outcome.file.status)} ${outcome.file.summary}`);
       } else if (outcome.reason === "idle-pane") {
         yield* Console.log(
-          `\n⚠ agent parked at the prompt without writing ${worktreeDir}/.homestead/agent-status.json — no trustworthy signal`,
+          `\n⚠ herdr reports the agent stopped (idle/done) but it never wrote ${worktreeDir}/.homestead/agent-status.json — no trustworthy signal`,
         );
       } else {
         yield* Console.log(

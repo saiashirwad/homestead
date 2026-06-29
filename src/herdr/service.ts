@@ -4,6 +4,7 @@ import { HerdrError, HerdrNotAvailable } from "./errors.ts";
 import { makePolling } from "./poll.ts";
 import {
   openWorkspaceIdForBranch,
+  PaneGetSchema,
   SurfaceCreatedSchema,
   type HerdrRuntimeEnv,
   type ReadSource,
@@ -51,6 +52,15 @@ export class Herdr extends Context.Service<Herdr>()("Herdr", {
         options?.source ?? "visible",
         ...(options?.lines ? ["--lines", String(options.lines)] : []),
       ]);
+    });
+
+    // herdr's own agent-state read: `working` while the agent runs, `idle`/`done`
+    // once it stops, `blocked` on a transient prompt. Returns undefined when the
+    // pane is gone or the status is absent (caller treats that as "not stopped").
+    const paneGet = Effect.fn("herdr/pane-get")(function* (paneId: string) {
+      const json = yield* exec("pane.get", ["pane", "get", paneId]);
+      const res = yield* decodeHerdr("pane.get", PaneGetSchema, json);
+      return res.result.pane.agent_status ?? undefined;
     });
 
     const polling = makePolling((paneId, options) => paneRead(paneId, options));
@@ -122,6 +132,8 @@ export class Herdr extends Context.Service<Herdr>()("Herdr", {
           exec("pane.send-keys", ["pane", "send-keys", paneId, ...keys]).pipe(Effect.asVoid),
 
         read: paneRead,
+
+        get: paneGet,
       },
 
       worktree: {

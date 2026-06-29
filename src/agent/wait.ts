@@ -2,10 +2,8 @@ import { Effect, FileSystem, Option, Path, Schema } from "effect";
 import { loadTrackingState, type TrackingState } from "../tracking.ts";
 import { resolveTargetDir } from "../worktree/plan.ts";
 import { slugify } from "../text.ts";
-import { matcher } from "../herdr/types.ts";
 import { Herdr } from "../herdr/service.ts";
 import type { HomesteadConfig } from "../types.ts";
-import { DEFAULT_AGENT_READY_MARKER } from "./defaults.ts";
 import { AGENT_STATUS_RELPATH, AgentStatusFileSchema, type AgentStatusFile } from "./status.ts";
 
 // What `wait` concluded: either the agent left a valid sentinel (the only
@@ -83,14 +81,13 @@ export interface WaitOptions {
   readonly paneId?: string | undefined;
   readonly timeoutMs: number;
   readonly pollMs: number;
-  // Ignore the idle-prompt backstop for this long after start — the prompt is
-  // also shown mid-task (e.g. after the agent presents a plan), so we only trust
-  // it once the agent has had time to get going. Default 15s.
+  // Ignore the idle backstop for this long after start — herdr can briefly read
+  // `idle` before the agent gets going, so we only trust the signal once it has
+  // had time to start. Default 15s.
   readonly graceMs?: number | undefined;
-  // How many consecutive idle reads (after the grace window) count as "parked".
-  // Default 3.
+  // How many consecutive idle/done reads (after the grace window) count as
+  // "stopped without a sentinel". Default 3.
   readonly consecutiveIdle?: number | undefined;
-  readonly readyMarker?: string | undefined;
 }
 
 // Read + decode the sentinel. Absent, unreadable, or malformed/partial all map
@@ -108,16 +105,22 @@ const readStatus = (statusPath: string) =>
     );
   });
 
-// Poll: status file is primary, idle-`❯` pane is the backstop. The whole loop is
-// raced against the timeout by the caller, so it can recurse unbounded.
+// What herdr's `agent_status` reports when the agent has stopped working. A
+// stopped agent that left no sentinel is the backstop's whole concern; `working`
+// (and `blocked`, a transient permission prompt) must NOT count. Crucially this
+// no longer greps pane text for `❯` — Claude Code's TUI always draws it, so the
+// text signal fired against working agents.
+const STOPPED_STATUSES = new Set(["idle", "done"]);
+
+// Poll: status file is primary, herdr's idle/done agent_status is the backstop.
+// The whole loop is raced against the timeout by the caller, so it can recurse
+// unbounded.
 export const waitForAgent = Effect.fn("homestead/agent-wait")(function* (opts: WaitOptions) {
   const path = yield* Path.Path;
   const statusPath = path.join(opts.worktreeDir, AGENT_STATUS_RELPATH);
   const pollMs = opts.pollMs;
   const graceMs = opts.graceMs ?? 15_000;
   const consecutiveIdle = opts.consecutiveIdle ?? 3;
-  const marker = opts.readyMarker ?? DEFAULT_AGENT_READY_MARKER;
-  const isReady = matcher(marker, false);
   const herdr = yield* Herdr;
 
   const step = (tick: number, idle: number): Effect.Effect<WaitOutcome, never, FileSystem.FileSystem> =>
@@ -127,10 +130,10 @@ export const waitForAgent = Effect.fn("homestead/agent-wait")(function* (opts: W
 
       let nextIdle = idle;
       if (opts.paneId !== undefined && tick * pollMs >= graceMs) {
-        const text = yield* herdr.pane
-          .read(opts.paneId, { source: "visible" })
-          .pipe(Effect.orElseSucceed(() => ""));
-        nextIdle = isReady(text) ? idle + 1 : 0;
+        const status = yield* herdr.pane
+          .get(opts.paneId)
+          .pipe(Effect.orElseSucceed(() => undefined));
+        nextIdle = status !== undefined && STOPPED_STATUSES.has(status) ? idle + 1 : 0;
         if (nextIdle >= consecutiveIdle) {
           return { _tag: "no-signal", reason: "idle-pane" } as const;
         }

@@ -74,3 +74,14 @@ export const matcher = (marker: string, regex: boolean | undefined) => {
 export const SurfaceCreatedSchema = Schema.Struct({
   result: Schema.Struct({ root_pane: Schema.Struct({ pane_id: Schema.String }) }),
 });
+
+// `herdr pane get <id>` reports the pane's agent_status — herdr's own reliable
+// working/idle/blocked/done detection. Far better than grepping pane text for a
+// prompt marker, which Claude Code's TUI renders even while working.
+export const PaneGetSchema = Schema.Struct({
+  result: Schema.Struct({
+    pane: Schema.Struct({
+      agent_status: Schema.optional(Schema.NullOr(Schema.String)),
+    }),
+  }),
+});

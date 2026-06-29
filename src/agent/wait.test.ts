@@ -31,12 +31,12 @@ const writeStatus = (body: string) => {
   fs.writeFileSync(path.join(dir, AGENT_STATUS_RELPATH), body);
 };
 
-const run = (opts: Parameters<typeof waitForAgent>[0], script?: ReadonlyArray<string>) =>
+const run = (opts: Parameters<typeof waitForAgent>[0], statuses?: ReadonlyArray<string>) =>
   Effect.runPromise(
     Effect.gen(function* () {
-      if (script !== undefined && opts.paneId !== undefined) {
+      if (statuses !== undefined && opts.paneId !== undefined) {
         const handle = yield* HerdrTestHandle;
-        yield* handle.script(opts.paneId, script);
+        yield* handle.setAgentStatus(opts.paneId, statuses);
       }
       return yield* waitForAgent(opts);
     }).pipe(Effect.provide(TestLayer)),
@@ -63,10 +63,49 @@ test("status 'blocked' → exit 2", async () => {
   expect(exitCodeFor(outcome)).toBe(2);
 });
 
-test("absent file + idle ❯ pane → no-signal (exit 3) via backstop", async () => {
-  const outcome = await run({ ...base, worktreeDir: dir, paneId: "pane-1" }, ["❯"]);
+test("absent file + herdr reports idle → no-signal (exit 3) via backstop", async () => {
+  const outcome = await run({ ...base, worktreeDir: dir, paneId: "pane-1" }, ["idle", "idle", "idle"]);
   expect(outcome._tag).toBe("no-signal");
+  expect(outcome).toMatchObject({ reason: "idle-pane" });
   expect(exitCodeFor(outcome)).toBe(3);
+});
+
+test("absent file + herdr reports done → no-signal (exit 3) via backstop", async () => {
+  const outcome = await run({ ...base, worktreeDir: dir, paneId: "pane-1" }, ["done", "done", "done"]);
+  expect(outcome._tag).toBe("no-signal");
+  expect(outcome).toMatchObject({ reason: "idle-pane" });
+});
+
+// The bug: Claude Code's TUI always renders `❯`, so the old text-grep backstop
+// fired against working agents. herdr's agent_status says "working" — so the
+// backstop must NOT trip; only the timeout may.
+test("working agent never trips the idle backstop — times out instead", async () => {
+  const outcome = await run(
+    { ...base, worktreeDir: dir, paneId: "pane-1", timeoutMs: 60 },
+    ["working", "working", "working", "working", "working"],
+  );
+  expect(outcome._tag).toBe("no-signal");
+  expect(outcome).toMatchObject({ reason: "timeout" });
+});
+
+// herdr "blocked" means a transient permission prompt, not a homestead-blocked
+// sentinel — it must not trip the backstop (only idle/done do).
+test("blocked agent_status does not trip the idle backstop — times out instead", async () => {
+  const outcome = await run(
+    { ...base, worktreeDir: dir, paneId: "pane-1", timeoutMs: 60 },
+    ["blocked", "blocked", "blocked", "blocked", "blocked"],
+  );
+  expect(outcome).toMatchObject({ reason: "timeout" });
+});
+
+// A non-idle reading resets the consecutive-idle counter, so a brief idle blip
+// mid-work does not accumulate toward the backstop.
+test("intermittent idle does not accumulate — resets on working", async () => {
+  const outcome = await run(
+    { ...base, worktreeDir: dir, paneId: "pane-1", timeoutMs: 60 },
+    ["idle", "working", "idle", "working", "idle", "working"],
+  );
+  expect(outcome).toMatchObject({ reason: "timeout" });
 });
 
 test("absent file + no pane + elapsed timeout → no-signal (exit 3)", async () => {

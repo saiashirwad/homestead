@@ -21,6 +21,8 @@ export interface HerdrTestJournal {
 
 export interface HerdrTestApi {
   readonly script: (paneId: string, transcripts: ReadonlyArray<string>) => Effect.Effect<void>;
+  /** Queue the agent_status sequence `pane get` returns for this pane (last value sticks). */
+  readonly setAgentStatus: (paneId: string, statuses: ReadonlyArray<string>) => Effect.Effect<void>;
   readonly setWorktrees: (cwd: string, worktrees: ReadonlyArray<WorktreeEntry>) => Effect.Effect<void>;
   /** Seed existing herdr workspaces so `findOrCreateWorkspace` finds them by label. */
   readonly setWorkspaces: (workspaces: ReadonlyArray<WorkspaceEntry>) => Effect.Effect<void>;
@@ -49,6 +51,8 @@ const buildHerdrTest = Effect.gen(function* () {
   const labelToPane = yield* Ref.make(new Map<string, string>());
   const readQueues = yield* Ref.make(new Map<string, ReadonlyArray<string>>());
   const readIndex = yield* Ref.make(new Map<string, number>());
+  const statusQueues = yield* Ref.make(new Map<string, ReadonlyArray<string>>());
+  const statusIndex = yield* Ref.make(new Map<string, number>());
   const worktreesByCwd = yield* Ref.make(new Map<string, ReadonlyArray<WorktreeEntry>>());
   const workspacesByLabel = yield* Ref.make(new Map<string, string>());
   const nextWorkspaceId = yield* Ref.make(1);
@@ -77,6 +81,21 @@ const buildHerdrTest = Effect.gen(function* () {
     return next ?? "";
   });
 
+  const paneGet = Effect.fn("herdr-test/pane-get")(function* (paneId: string) {
+    const queues = yield* Ref.get(statusQueues);
+    const indices = yield* Ref.get(statusIndex);
+    const queue = queues.get(paneId);
+    if (queue === undefined || queue.length === 0) {
+      return undefined;
+    }
+    const index = indices.get(paneId) ?? 0;
+    const next = index < queue.length ? queue[index] : queue[queue.length - 1];
+    if (index < queue.length) {
+      yield* Ref.update(statusIndex, (map) => new Map(map).set(paneId, index + 1));
+    }
+    return next;
+  });
+
   const polling = makePolling((paneId, options) => paneRead(paneId, options));
 
   const handle: HerdrTestApi = {
@@ -84,6 +103,12 @@ const buildHerdrTest = Effect.gen(function* () {
       Effect.gen(function* () {
         yield* Ref.update(readQueues, (map) => new Map(map).set(paneId, transcripts));
         yield* Ref.update(readIndex, (map) => new Map(map).set(paneId, 0));
+      }),
+
+    setAgentStatus: (paneId, statuses) =>
+      Effect.gen(function* () {
+        yield* Ref.update(statusQueues, (map) => new Map(map).set(paneId, statuses));
+        yield* Ref.update(statusIndex, (map) => new Map(map).set(paneId, 0));
       }),
 
     setWorktrees: (cwd, worktrees) =>
@@ -178,6 +203,8 @@ const buildHerdrTest = Effect.gen(function* () {
         })),
 
       read: paneRead,
+
+      get: paneGet,
     },
 
     worktree: {
