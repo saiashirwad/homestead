@@ -105,6 +105,17 @@ export interface PrConfig extends Omit<PrConfigData, "checks"> {
   readonly prBranch?: ((ctx: { pr: PrView; kind: "fork" | "same-repo" }) => string) | undefined;
 }
 
+// `homestead land <branch>` — merge into the default branch, regenerate
+// generated artifacts, run `verify`, keep the merge only on green.
+export interface LandConfig {
+  /** Gate command; the merge is kept only if it exits 0. Default: `bun run check`. */
+  readonly verify?: ReadonlyArray<string> | undefined;
+  /** Regenerate-generated-artifacts commands, run in order before verify. Default: `bun run gen:config-types`; [] to opt out. */
+  readonly regen?: ReadonlyArray<ReadonlyArray<string>> | undefined;
+  /** Repo-relative paths/globs treated as regenerate-not-merge. Default: ["src/generated/**"]. */
+  readonly generated?: ReadonlyArray<string> | undefined;
+}
+
 export interface HomesteadConfig {
   /** `ctx.worktreeDir` is always empty inside this callback — the path is what you're defining. */
   readonly worktreeDir?: ((ctx: HomesteadContext) => string) | undefined;
@@ -118,6 +129,7 @@ export interface HomesteadConfig {
   readonly agent?: AgentConfig;
   readonly issues?: IssuesConfig;
   readonly pr?: PrConfig;
+  readonly land?: LandConfig;
   // Lifecycle hooks return `unknown` — an Effect, a Promise (plain `async`, no
   // `effect` import), or nothing. homestead normalizes the result (see
   // normalizeHookResult in hooks.ts). The generated config types mirror this.

@@ -150,6 +150,12 @@ export interface PrConfig {
   readonly prBranch?: ((ctx: { pr: PrView; kind: "fork" | "same-repo"; }) => string) | undefined;
 }
 
+export interface LandConfig {
+  readonly verify?: ReadonlyArray<string> | undefined;
+  readonly regen?: ReadonlyArray<ReadonlyArray<string>> | undefined;
+  readonly generated?: ReadonlyArray<string> | undefined;
+}
+
 export type HomesteadEvent = {
     type: "worktree.creating";
     branch: string;
@@ -189,6 +195,7 @@ export interface HomesteadConfig {
   readonly agent?: AgentConfig | undefined;
   readonly issues?: IssuesConfig | undefined;
   readonly pr?: PrConfig | undefined;
+  readonly land?: LandConfig | undefined;
   readonly afterSetup?: ((ctx: WorktreeContext & { readonly plan: Plan }) => unknown) | undefined;
   readonly afterLaunch?: ((ctx: HomesteadContext & { readonly paneId: string; }) => unknown) | undefined;
   readonly beforeTeardown?: ((ctx: HomesteadContext & { readonly verb: "kill" | "close" | "complete"; readonly tracked: boolean; readonly spawnedBy?: string; }) => unknown) | undefined;

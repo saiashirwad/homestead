@@ -19,6 +19,7 @@ import { launchIssues, requireAgentConfig } from "./issue/provision.ts";
 import { parsePrArg, type PrRef } from "./pr/ref.ts";
 import { launchPr } from "./pr/provision.ts";
 import { closeBranch, completeBranch, killBranch } from "./teardown.ts";
+import { runLand } from "./land.ts";
 import { renderDashboard } from "./dashboard.ts";
 import { runGc } from "./gc.ts";
 import { runDoctor } from "./doctor.ts";
@@ -232,6 +233,44 @@ const completeCommand = Command.make(
       yield* Console.log(`\n✅ completed ${branches.length}: ${branches.join(", ")}`);
     }),
 ).pipe(Command.withDescription("mark issue completed on GitHub + remove worktree & branch (local + remote)"));
+
+const landCommand = Command.make(
+  "land",
+  {
+    branches: branchTarget.pipe(
+      Argument.atLeast(1),
+      Argument.withDescription("branch name, issue number, or issue URL"),
+    ),
+    complete: Flag.boolean("complete").pipe(
+      Flag.withDescription("on green, chain `homestead complete` for each landed branch"),
+    ),
+    keepRemote: Flag.boolean("keep-remote").pipe(
+      Flag.withDescription("with --complete: keep the remote branch (default: delete branches you own)"),
+    ),
+    allowSpawned: Flag.boolean("allow-spawned").pipe(
+      Flag.withDescription("with --complete: land machine-spawned (auto-work) branches (default: refuse)"),
+    ),
+  },
+  ({ branches, complete, keepRemote, allowSpawned }) =>
+    Effect.gen(function* () {
+      const repo = yield* resolveRepo();
+      const config = yield* loadConfigOrUndefined(repo.primaryRoot);
+      const ok = yield* runLand(repo.primaryRoot, repo.repoName, branches, config, {
+        complete,
+        keepRemote,
+        allowSpawned,
+      });
+      // Command.run yields 0/1 itself; set 1 explicitly on a soft failure (wrong
+      // branch or any branch that didn't land) so scripts can gate on it.
+      if (!ok) {
+        yield* Effect.sync(() => {
+          process.exitCode = 1;
+        });
+      }
+    }),
+).pipe(
+  Command.withDescription("merge a branch into the default branch, regenerate, verify, keep only on green"),
+);
 
 const runPr = (mode: "review" | "work", ref: PrRef) =>
   Effect.gen(function* () {
@@ -547,6 +586,7 @@ const homestead = Command.make("homestead", {}).pipe(
     killCommand,
     closeCommand,
     completeCommand,
+    landCommand,
     reviewCommand,
     prCommand,
     agentCommand,

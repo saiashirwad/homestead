@@ -95,6 +95,21 @@ export const PrConfigDataSchema = Schema.Struct({
 export type PrConfigData = typeof PrConfigDataSchema.Type;
 export const PR_DATA_FIELDS = ["checks"] as const satisfies ReadonlyArray<keyof PrConfigData>;
 
+export const LandConfigDataSchema = Schema.Struct({
+  // The gate. `homestead land` keeps a merge only if this command exits 0;
+  // otherwise the merge is rolled back. Defaults to `bun run check`.
+  verify: Schema.optional(Schema.Array(Schema.String).check(Schema.isMinLength(1))),
+  // Commands (run in order) that regenerate generated artifacts after the merge,
+  // before verify. A text 3-way merge of generated files is wrong — they must be
+  // regenerated. Defaults to `bun run gen:config-types`; set [] to opt out.
+  regen: Schema.optional(Schema.Array(Schema.Array(Schema.String).check(Schema.isMinLength(1)))),
+  // Repo-relative paths/globs treated as regenerate-not-merge: a merge conflict
+  // confined to these is resolved by regeneration, not failure. Supports `*`
+  // (one path segment) and `**` (any). Defaults to ["src/generated/**"].
+  generated: Schema.optional(Schema.Array(Schema.String)),
+});
+export type LandConfigData = typeof LandConfigDataSchema.Type;
+
 const emptyPorts = Schema.Array(PortSpecSchema).pipe(
   Schema.optional,
   Schema.withDecodingDefault(Effect.succeed([] as Array<PortSpec>)),
@@ -116,5 +131,6 @@ export const ConfigDataSchema = Schema.Struct({
   agent: Schema.optional(AgentConfigDataSchema),
   issues: Schema.optional(IssuesConfigDataSchema),
   pr: Schema.optional(PrConfigDataSchema),
+  land: Schema.optional(LandConfigDataSchema),
 }).pipe(Schema.annotate({ parseOptions: { errors: "all" } }));
 export type ConfigData = typeof ConfigDataSchema.Type;

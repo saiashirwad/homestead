@@ -35,6 +35,28 @@ homestead complete 21     # merged — remove the worktree and branch
 homestead kill 21         # discard it
 ```
 
+## Land a finished branch
+
+```bash
+homestead land 21              # merge 21 → default branch, regenerate, verify, keep only if green
+homestead land 21 --complete  # …and on green, run `homestead complete` for you
+```
+
+Integrating a finished branch by hand is the same chore every time: stash your
+WIP, merge, regenerate generated files (a text merge of those is wrong — they
+must be rebuilt), run checks, and only commit if it's green. `land` owns that:
+
+1. Auto-stashes the primary checkout's dirty WIP, then `git merge --no-ff --no-commit`.
+2. Regenerates generated artifacts (default `bun run gen:config-types`). A merge
+   conflict confined to your generated files is resolved by regenerating them,
+   not by failing.
+3. Runs the verify gate (default `bun run check`).
+4. **Green** → commits the merge. **Red** → rolls the whole merge back. Either
+   way your stashed WIP comes back.
+
+Run it from the primary checkout while it's on the default branch. Configure the
+commands under `land` (see below). Pass several branches to land them in order.
+
 ## See everything at once
 
 ```bash

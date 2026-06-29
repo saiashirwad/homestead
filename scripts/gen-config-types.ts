@@ -121,6 +121,7 @@ const NAMED = [
   "AgentConfig",
   "IssuesConfig",
   "PrConfig",
+  "LandConfig",
 ];
 
 const blocks = [

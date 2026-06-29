@@ -109,4 +109,14 @@ export default {
     // reviewPrompt: ({ pr, checks }) => `Review PR #${pr.number} (${pr.url}).`,
     // workPrompt: ({ pr }) => `Continue PR #${pr.number} (${pr.url}).`,
   },
+
+  // `homestead land <branch>` merges a finished branch into the default branch,
+  // regenerates generated files, runs `verify`, and keeps the merge only if it's
+  // green (rolling back otherwise). All fields are optional — these are the
+  // defaults shown explicitly.
+  land: {
+    verify: ["bun", "run", "check"], // the gate; merge kept only if this exits 0
+    regen: [["bun", "run", "gen:config-types"]], // rebuild generated files before verify ([] to opt out)
+    generated: ["src/generated/**"], // a merge conflict confined to these is regenerated, not failed
+  },
 } satisfies HomesteadConfig;

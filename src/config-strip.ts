@@ -5,9 +5,10 @@ import {
   type AgentConfigData,
   type ConfigData,
   type IssuesConfigData,
+  type LandConfigData,
   type PrConfigData,
 } from "./config-schema.ts";
-import type { AgentConfig, HomesteadConfig, IssuesConfig, PrConfig } from "./types.ts";
+import type { AgentConfig, HomesteadConfig, IssuesConfig, LandConfig, PrConfig } from "./types.ts";
 
 const isFunction = (v: unknown): v is (...args: never[]) => unknown => typeof v === "function";
 
@@ -64,6 +65,16 @@ export const stripPrData = (pr: PrConfig | undefined): PrConfigData | undefined 
   return typeof pr.checks === "string" ? { checks: pr.checks } : {};
 };
 
+/** Land config is all string arrays (no callbacks) — pass through, defensively cloned. */
+export const stripLandData = (land: LandConfig | undefined): LandConfigData | undefined => {
+  if (land === undefined) return undefined;
+  const out: { -readonly [K in keyof LandConfigData]: LandConfigData[K] } = {};
+  if (Array.isArray(land.verify)) out.verify = [...land.verify];
+  if (Array.isArray(land.regen)) out.regen = land.regen.map((cmd) => [...cmd]);
+  if (Array.isArray(land.generated)) out.generated = [...land.generated];
+  return out;
+};
+
 // Callable config values cannot pass Schema decode — strip them here so the
 // schema can validate the scalar shape.
 export const toConfigData = (config: HomesteadConfig): ConfigData => ({
@@ -77,4 +88,5 @@ export const toConfigData = (config: HomesteadConfig): ConfigData => ({
   agent: stripAgentData(config.agent),
   issues: stripIssuesData(config.issues),
   pr: stripPrData(config.pr),
+  land: stripLandData(config.land),
 });
