@@ -1,6 +1,6 @@
 import { Context, Effect, Layer, Ref } from "effect";
 import { Git } from "./service.ts";
-import type { MergeResult } from "./service.ts";
+import type { MergeResult, WorktreePorcelainEntry } from "./service.ts";
 
 export interface GitTestApi {
   readonly setCommonDir: (cwd: string, dir: string) => Effect.Effect<void>;
@@ -10,6 +10,11 @@ export interface GitTestApi {
   readonly setAncestor: (cwd: string, ref: string, base: string, value: boolean) => Effect.Effect<void>;
   readonly setCurrentBranch: (cwd: string, branch: string) => Effect.Effect<void>;
   readonly setStatus: (cwd: string, porcelain: string) => Effect.Effect<void>;
+  readonly setWorktrees: (cwd: string, entries: ReadonlyArray<WorktreePorcelainEntry>) => Effect.Effect<void>;
+  readonly setLocalBranches: (cwd: string, names: ReadonlyArray<string>) => Effect.Effect<void>;
+  readonly setStatusV2: (cwd: string, raw: string) => Effect.Effect<void>;
+  readonly setShortHead: (cwd: string, sha: string) => Effect.Effect<void>;
+  readonly setTopLevel: (cwd: string, path: string) => Effect.Effect<void>;
   readonly journal: () => Effect.Effect<{
     merges: Array<{ cwd: string; branch: string }>;
     aborts: Array<string>;
@@ -17,6 +22,13 @@ export interface GitTestApi {
     adds: Array<string>;
     stashPushes: Array<string>;
     stashPops: Array<string>;
+    worktreeAdds: Array<{ cwd: string; dir: string; branch: string }>;
+    worktreeRemoves: Array<{ cwd: string; path: string }>;
+    prunes: Array<string>;
+    branchCreates: Array<{ cwd: string; name: string; startPoint: string }>;
+    branchDeletes: Array<{ cwd: string; name: string }>;
+    remoteDeletes: Array<{ cwd: string; remote: string; name: string }>;
+    fetches: Array<{ cwd: string; remote: string; refspec: string }>;
   }>;
 }
 
@@ -33,6 +45,11 @@ const buildGitTest = Effect.gen(function* () {
   const ancestors = yield* Ref.make(new Map<string, boolean>());
   const currentBranches = yield* Ref.make(new Map<string, string>());
   const statuses = yield* Ref.make(new Map<string, string>());
+  const worktreesByCwd = yield* Ref.make(new Map<string, ReadonlyArray<WorktreePorcelainEntry>>());
+  const localBranches = yield* Ref.make(new Map<string, string[]>());
+  const statusV2Map = yield* Ref.make(new Map<string, string>());
+  const shortHeads = yield* Ref.make(new Map<string, string>());
+  const topLevels = yield* Ref.make(new Map<string, string>());
   const journal = yield* Ref.make({
     merges: [] as Array<{ cwd: string; branch: string }>,
     aborts: [] as Array<string>,
@@ -40,6 +57,13 @@ const buildGitTest = Effect.gen(function* () {
     adds: [] as Array<string>,
     stashPushes: [] as Array<string>,
     stashPops: [] as Array<string>,
+    worktreeAdds: [] as Array<{ cwd: string; dir: string; branch: string }>,
+    worktreeRemoves: [] as Array<{ cwd: string; path: string }>,
+    prunes: [] as Array<string>,
+    branchCreates: [] as Array<{ cwd: string; name: string; startPoint: string }>,
+    branchDeletes: [] as Array<{ cwd: string; name: string }>,
+    remoteDeletes: [] as Array<{ cwd: string; remote: string; name: string }>,
+    fetches: [] as Array<{ cwd: string; remote: string; refspec: string }>,
   });
 
   const handle: GitTestApi = {
@@ -61,6 +85,16 @@ const buildGitTest = Effect.gen(function* () {
       Ref.update(currentBranches, (m) => new Map(m).set(cwd, branch)),
     setStatus: (cwd, porcelain) =>
       Ref.update(statuses, (m) => new Map(m).set(cwd, porcelain)),
+    setWorktrees: (cwd, entries) =>
+      Ref.update(worktreesByCwd, (m) => new Map(m).set(cwd, entries)),
+    setLocalBranches: (cwd, names) =>
+      Ref.update(localBranches, (m) => new Map(m).set(cwd, [...names])),
+    setStatusV2: (cwd, raw) =>
+      Ref.update(statusV2Map, (m) => new Map(m).set(cwd, raw)),
+    setShortHead: (cwd, sha) =>
+      Ref.update(shortHeads, (m) => new Map(m).set(cwd, sha)),
+    setTopLevel: (cwd, path) =>
+      Ref.update(topLevels, (m) => new Map(m).set(cwd, path)),
     journal: () => Ref.get(journal),
   };
 
@@ -87,6 +121,61 @@ const buildGitTest = Effect.gen(function* () {
       pop: (cwd) =>
         Ref.update(journal, (j) => ({ ...j, stashPops: [...j.stashPops, cwd] })).pipe(Effect.as(true)),
     },
+    worktree: {
+      list: (cwd) =>
+        Ref.get(worktreesByCwd).pipe(Effect.map((m) => m.get(cwd) ?? [])),
+      pathForBranch: (cwd, branch) =>
+        Ref.get(worktreesByCwd).pipe(
+          Effect.map((m) => (m.get(cwd) ?? []).find((e) => e.branch === branch)?.path),
+        ),
+      add: (cwd, opts) =>
+        Ref.update(journal, (j) => ({
+          ...j,
+          worktreeAdds: [...j.worktreeAdds, { cwd, dir: opts.dir, branch: opts.branch }],
+        })),
+      addNew: (cwd, opts) =>
+        Ref.update(journal, (j) => ({
+          ...j,
+          worktreeAdds: [...j.worktreeAdds, { cwd, dir: opts.dir, branch: opts.branch }],
+        })),
+      remove: (cwd, path) =>
+        Ref.update(journal, (j) => ({
+          ...j,
+          worktreeRemoves: [...j.worktreeRemoves, { cwd, path }],
+        })),
+      prune: (cwd) =>
+        Ref.update(journal, (j) => ({ ...j, prunes: [...j.prunes, cwd] })),
+    },
+    branch: {
+      create: (cwd, name, startPoint) =>
+        Ref.update(journal, (j) => ({
+          ...j,
+          branchCreates: [...j.branchCreates, { cwd, name, startPoint }],
+        })),
+      delete: (cwd, name) =>
+        Ref.update(journal, (j) => ({
+          ...j,
+          branchDeletes: [...j.branchDeletes, { cwd, name }],
+        })),
+      deleteRemote: (cwd, remote, name) =>
+        Ref.update(journal, (j) => ({
+          ...j,
+          remoteDeletes: [...j.remoteDeletes, { cwd, remote, name }],
+        })),
+      listLocal: (cwd) =>
+        Ref.get(localBranches).pipe(Effect.map((m) => m.get(cwd) ?? [])),
+    },
+    fetch: (cwd, remote, refspec) =>
+      Ref.update(journal, (j) => ({
+        ...j,
+        fetches: [...j.fetches, { cwd, remote, refspec }],
+      })),
+    statusV2: (cwd) =>
+      Ref.get(statusV2Map).pipe(Effect.map((m) => m.get(cwd) ?? "")),
+    shortHead: (cwd) =>
+      Ref.get(shortHeads).pipe(Effect.map((m) => m.get(cwd) ?? "")),
+    topLevel: (cwd) =>
+      Ref.get(topLevels).pipe(Effect.map((m) => m.get(cwd) ?? "")),
   };
 
   return { git, handle };

@@ -73,3 +73,14 @@ test("symbolicRef returns undefined when the ref is absent", async () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("worktree.list reports the primary checkout", async () => {
+  const root = makeRepo();
+  try {
+    sh(root, "commit", "--allow-empty", "-m", "init");
+    const entries = await run(Effect.flatMap(Git, (git) => git.worktree.list(root)));
+    expect(entries.some((e) => e.branch === "main")).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

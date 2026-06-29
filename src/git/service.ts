@@ -1,5 +1,8 @@
 import { Console, Context, Effect, Layer } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process";
+import { parseWorktreePorcelain, worktreePathForBranch, type WorktreePorcelainEntry } from "./porcelain.ts";
+
+export type { WorktreePorcelainEntry };
 
 export type MergeResult =
   | { readonly _tag: "Merged" }
@@ -95,6 +98,40 @@ export class Git extends Context.Service<Git>()("Git", {
           exit(cwd, ["stash", "push", "-u", "-m", message]).pipe(Effect.map((code) => code === 0)),
         pop: (cwd: string) => exit(cwd, ["stash", "pop"]).pipe(Effect.map((code) => code === 0)),
       },
+
+      worktree: {
+        list: (cwd: string) =>
+          capture(cwd, ["worktree", "list", "--porcelain"]).pipe(Effect.map(parseWorktreePorcelain)),
+        pathForBranch: (cwd: string, branch: string) =>
+          capture(cwd, ["worktree", "list", "--porcelain"]).pipe(
+            Effect.map((list) => worktreePathForBranch(list, branch)),
+          ),
+        add: (cwd: string, opts: { readonly dir: string; readonly branch: string }) =>
+          mutate(cwd, ["worktree", "add", opts.dir, opts.branch]),
+        addNew: (cwd: string, opts: { readonly dir: string; readonly branch: string; readonly baseRef: string }) =>
+          mutate(cwd, ["worktree", "add", "-b", opts.branch, opts.dir, opts.baseRef]),
+        remove: (cwd: string, path: string) => attempt(cwd, ["worktree", "remove", "--force", path]),
+        prune: (cwd: string) => attempt(cwd, ["worktree", "prune"]),
+      },
+
+      branch: {
+        create: (cwd: string, name: string, startPoint: string) =>
+          mutate(cwd, ["branch", name, startPoint]),
+        delete: (cwd: string, name: string) => mutate(cwd, ["branch", "-D", name]),
+        deleteRemote: (cwd: string, remote: string, name: string) =>
+          attempt(cwd, ["push", remote, "--delete", name]),
+        listLocal: (cwd: string) =>
+          capture(cwd, ["for-each-ref", "--format=%(refname:short)", "refs/heads"]).pipe(
+            Effect.map(splitLines),
+          ),
+      },
+
+      fetch: (cwd: string, remote: string, refspec: string) =>
+        mutate(cwd, ["fetch", remote, refspec]),
+
+      statusV2: (cwd: string) => capture(cwd, ["status", "--porcelain=v2", "--branch"]),
+      shortHead: (cwd: string) => capture(cwd, ["rev-parse", "--short", "HEAD"]),
+      topLevel: (cwd: string) => capture(cwd, ["rev-parse", "--show-toplevel"]),
     };
   }),
 }) {}

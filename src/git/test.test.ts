@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { Effect } from "effect";
 import { Git } from "./service.ts";
 import { GitTest, GitTestHandle } from "./test.ts";
+import type { WorktreePorcelainEntry } from "./porcelain.ts";
 
 test("GitTest stages a merge conflict and journals the abort", async () => {
   await Effect.runPromise(
@@ -33,6 +34,26 @@ test("GitTest stages refExists and symbolicRef responses", async () => {
       expect(yield* git.refExists("/repo", "refs/heads/other")).toBe(false);
       expect(yield* git.symbolicRef("/repo", "refs/remotes/origin/HEAD")).toBe("origin/main");
       expect(yield* git.symbolicRef("/repo", "refs/remotes/origin/HEAD2")).toBeUndefined();
+    }).pipe(Effect.provide(GitTest)),
+  );
+});
+
+test("GitTest worktree.list/pathForBranch + remove journal", async () => {
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const handle = yield* GitTestHandle;
+      const git = yield* Git;
+      const entries: ReadonlyArray<WorktreePorcelainEntry> = [
+        { path: "/wt/main", branch: "main" },
+        { path: "/wt/feat", branch: "feature" },
+      ];
+      yield* handle.setWorktrees("/repo", entries);
+
+      expect(yield* git.worktree.pathForBranch("/repo", "feature")).toBe("/wt/feat");
+      yield* git.worktree.remove("/repo", "/wt/feat");
+
+      const journal = yield* handle.journal();
+      expect(journal.worktreeRemoves).toEqual([{ cwd: "/repo", path: "/wt/feat" }]);
     }).pipe(Effect.provide(GitTest)),
   );
 });
