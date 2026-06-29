@@ -31,13 +31,17 @@ import { resolveSpawnPrompt, spawnAgent } from "./agent/spawn.ts";
 import { promptAgent } from "./agent/prompt.ts";
 import { PENDING_JSON, resultForSlug } from "./agent/result.ts";
 import { resolveRepo, setupWorktree } from "./worktree/index.ts";
+import { PortAllocator } from "./worktree/ports.ts";
 import { DEFAULT_REVIEW_LABEL } from "./defaults.ts";
 import type { WorktreeOptions } from "./types.ts";
 
 const fail = (message: string) =>
   Console.error(message).pipe(Effect.andThen(Effect.fail(new UsageError({ message }))));
 
-const AppLayer = Layer.provideMerge(Layer.effect(Herdr, Herdr.make), BunServices.layer);
+const AppLayer = Layer.provideMerge(
+  Layer.mergeAll(Layer.effect(Herdr, Herdr.make), PortAllocator.layer),
+  BunServices.layer,
+);
 
 const issueRef = Argument.string("issue").pipe(
   Argument.filterMap(

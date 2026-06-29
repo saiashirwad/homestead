@@ -10,11 +10,12 @@ import { slugify } from "../text.ts";
 import { AGENT_MARKER_FILE } from "../tracking.ts";
 import type { HomesteadConfig } from "../types.ts";
 import type { Repo } from "../worktree/index.ts";
+import { PortAllocator } from "../worktree/ports.ts";
 import { STATUS_FILE_INSTRUCTION } from "./defaults.ts";
 import { AGENT_STATUS_RELPATH } from "./status.ts";
 import { buildSpawnMarker, resolveSpawnPrompt, seedSpawnPrompt, spawnAgent } from "./spawn.ts";
 
-const TestLayer = Layer.provideMerge(HerdrTest, BunServices.layer);
+const TestLayer = Layer.provideMerge(Layer.mergeAll(HerdrTest, PortAllocator.layer), BunServices.layer);
 const noStdin = Effect.succeed("");
 
 // --- prompt resolution -------------------------------------------------------

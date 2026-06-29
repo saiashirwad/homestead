@@ -18,6 +18,13 @@ import {
   type WorktreeOptions,
 } from "../types.ts";
 import { refExists, resolveDefaultBaseRef } from "./base-ref.ts";
+import {
+  liveReservations,
+  readReservations,
+  reservationsToClaim,
+  withRegistryLock,
+  writeReservations,
+} from "./ports.ts";
 import type { Repo } from "./repo.ts";
 
 export interface Target {
@@ -63,6 +70,7 @@ export const resolveTargetDir = (input: {
 export const collectUsedPorts = (
   envContents: ReadonlyArray<string>,
   ports: ReadonlyArray<PortSpec>,
+  reserved: ReadonlyArray<{ readonly key: string; readonly port: number }> = [],
 ): Map<string, Set<number>> => {
   const used = new Map<string, Set<number>>(ports.map((spec) => [spec.key, new Set<number>()]));
   for (const content of envContents) {
@@ -70,6 +78,11 @@ export const collectUsedPorts = (
       const value = Number(readEnvVar(content, spec.key));
       if (Number.isInteger(value)) used.get(spec.key)?.add(value);
     }
+  }
+  // In-flight cross-process claims (live reservations) count as used too, so a
+  // port picked-but-not-yet-written by another homestead run isn't handed out twice.
+  for (const { key, port } of reserved) {
+    if (Number.isInteger(port)) used.get(key)?.add(port);
   }
   return used;
 };
@@ -263,7 +276,6 @@ export const resolvePlan = Effect.fn("homestead/resolve-plan")(function* (
     if (!(yield* fs.exists(siblingEnv))) continue;
     siblingEnvContents.push(yield* fs.readFileString(siblingEnv));
   }
-  const used = collectUsedPorts(siblingEnvContents, ports);
 
   const portCtx = makeContext({
     repoName: repo.repoName,
@@ -272,9 +284,38 @@ export const resolvePlan = Effect.fn("homestead/resolve-plan")(function* (
     worktreeDir: target.targetDir,
     env: (key) => readEnvVar(sourceContent, key),
   });
-  const envEdits: Array<readonly [string, string]> = [
-    ...(yield* resolvePortEdits(targetEnv, ports, used, portCtx, probe)),
-  ];
+
+  // Cross-process layer: reading the live reservations, picking ports, and
+  // recording the picks as claims must be ONE locked critical section — if only
+  // the write were locked, two homestead processes could both read a port "free"
+  // and both take it. The claim bridges this pick→writeEnv gap; the in-process
+  // Semaphore in setupWorktree serializes the same span for sibling fibers.
+  const portEdits =
+    ports.length === 0
+      ? ([] as ReadonlyArray<readonly [string, string]>)
+      : yield* withRegistryLock(
+          repo.repoName,
+          Effect.gen(function* () {
+            const reserved = liveReservations(yield* readReservations(repo.repoName), Date.now());
+            const used = collectUsedPorts(siblingEnvContents, ports, reserved);
+            const picks = yield* resolvePortEdits(targetEnv, ports, used, portCtx, probe);
+            const claims = reservationsToClaim(
+              ports,
+              targetEnv,
+              picks,
+              target.branch,
+              process.pid,
+              new Date().toISOString(),
+            );
+            if (claims.length > 0) {
+              const survivors = reserved.filter((r) => !(r.branch === target.branch && r.pid === process.pid));
+              yield* writeReservations(repo.repoName, [...survivors, ...claims]);
+            }
+            return picks;
+          }),
+        );
+
+  const envEdits: Array<readonly [string, string]> = [...portEdits];
 
   // Derived keys (e.g. a per-worktree DATABASE_URL) — the config function reads
   // the SOURCE .env via ctx.env and returns the values to override.

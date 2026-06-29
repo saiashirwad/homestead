@@ -76,6 +76,9 @@ export const IssuesConfigDataSchema = Schema.Struct({
   comment: Schema.optional(Schema.Boolean),
   reviewLabel: Schema.optional(Schema.String),
   labelColor: Schema.optional(Schema.String),
+  // How many issues `homestead issue a b c` provisions in parallel. Port picks
+  // are race-safe, so this just bounds concurrent worktree setup (default 4).
+  concurrency: Schema.optional(Schema.Number.check(Schema.isInt(), Schema.isGreaterThan(0))),
 });
 export type IssuesConfigData = typeof IssuesConfigDataSchema.Type;
 export const ISSUES_SCALAR_FIELDS = ["label", "reviewLabel", "labelColor"] as const satisfies ReadonlyArray<
