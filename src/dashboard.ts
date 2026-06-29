@@ -202,6 +202,20 @@ const cellsFor = (row: DashboardRow): ReadonlyArray<string> => [
   renderOrigin(row.origin),
 ];
 
+// One render tick: collect the read-only dashboard and format it into the exact
+// bytes `ls` prints (the table, or the empty sentinel). Shared by `ls` (print
+// once) and `ls --watch` (print each tick) so both emit identical output, and so
+// the watch loop body is unit-testable without a TTY. STRICTLY READ-ONLY — it
+// only delegates to collectDashboard, which performs no writes.
+export const renderDashboard = (
+  repo: Repo,
+  config: HomesteadConfig | undefined,
+  gitWorktreeList?: Effect.Effect<string, never, ChildProcessSpawner.ChildProcessSpawner>,
+): Effect.Effect<string, never, FileSystem.FileSystem | Path.Path | Herdr | ChildProcessSpawner.ChildProcessSpawner> =>
+  collectDashboard(repo, config, gitWorktreeList).pipe(
+    Effect.map((rows) => (rows.length === 0 ? "No linked worktrees." : renderTable(rows))),
+  );
+
 // Render an aligned, fixed-width table. Each column is padded to the widest
 // cell (header included); a trailing column is left unpadded. Pure formatting.
 export const renderTable = (rows: ReadonlyArray<DashboardRow>): string => {
