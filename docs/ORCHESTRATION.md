@@ -209,9 +209,10 @@ always passes `allowSpawned: true` (`teardown.ts:179`).
 ## The Claude-flavored layer
 
 The skills under `src/skills/` — `homestead-local-complete`, `homestead-teardown`,
-`homestead-pr-triage`, `homestead-setup` — are the Claude-flavored *judgment* layer
-that sits on top of this contract. They decide *when* to call the primitives (when
-it is safe to land, when a branch is someone else's, how to set a repo up). This
+`homestead-pr-triage`, `homestead-setup`, `homestead-decompose` — are the
+Claude-flavored *judgment* layer that sits on top of this contract. They decide
+*when* to call the primitives (when it is safe to land, when a branch is someone
+else's, how to set a repo up, how to slice a goal into collision-aware issues). This
 document defines the primitives themselves so that any agent — not just Claude — can
 build an equivalent layer.
 
