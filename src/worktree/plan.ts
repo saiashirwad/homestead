@@ -3,7 +3,7 @@ import * as os from "node:os";
 import { emit } from "../events.ts";
 import { parseWorktreePorcelain } from "../git/porcelain.ts";
 import { nextFreePort, readEnvVar, slugify } from "../text.ts";
-import { capture, run } from "../process.ts";
+import { capture, probeTcp, run } from "../process.ts";
 import {
   DEFAULT_ENV_FALLBACK,
   DEFAULT_ENV_SOURCE,
@@ -95,6 +95,71 @@ export const computePortEdits = (
   return envEdits;
 };
 
+const PROBE_HOST = "127.0.0.1";
+const PROBE_TIMEOUT_MS = 200;
+const MAX_PORT_ATTEMPTS = 20;
+
+// Pick a port that is BOTH free in `used` (the sibling-.env-derived set) AND has
+// no live listener. We only probe the .env-chosen candidate, not the whole range
+// — probing is sequential network I/O, so probing every port would be too slow.
+// On a live hit we record the busy port in `used` and ask `nextFreePort` again,
+// bounded by `maxAttempts` so a saturated range fails loudly instead of hanging.
+//
+// Side effect: mutates `used`, adding every live port it skipped (but NOT the
+// returned port). That lets a downstream `computePortEdits(base, used)` recompute
+// this exact pick — the busy ports are excluded, the chosen one is the next free.
+//
+// ⚠ TOCTOU: a port free at probe time can be grabbed milliseconds later by
+// another process or a parallel homestead run. Probing shrinks the window
+// dramatically but cannot close it; we deliberately do NOT bind/reserve the port.
+export const pickFreePort = Effect.fn("homestead/pick-free-port")(function* (
+  base: number,
+  used: Set<number>,
+  probe: (port: number) => Effect.Effect<boolean>,
+  maxAttempts: number = MAX_PORT_ATTEMPTS,
+) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const candidate = nextFreePort(base, used);
+    const live = yield* probe(candidate);
+    if (!live) return candidate;
+    used.add(candidate);
+  }
+  return yield* Effect.die(
+    new Error(
+      `[homestead] could not allocate a free port near ${base} after ${maxAttempts} attempts — ` +
+        `every candidate already had a live listener. Free a port or stop a stale process.`,
+    ),
+  );
+});
+
+// Liveness-aware port allocation. For each spec the worktree's own .env already
+// claims, we reuse that value verbatim and never probe (idempotent re-run). For
+// the rest we probe-pick a port, then reserve the chosen port against every other
+// spec so two specs sharing a range can't both grab it — its own set is left
+// free of the pick so `computePortEdits` below reproduces the same value.
+export const resolvePortEdits = Effect.fn("homestead/resolve-port-edits")(function* (
+  targetEnv: string,
+  ports: ReadonlyArray<PortSpec>,
+  used: Map<string, Set<number>>,
+  ctx: HomesteadContext,
+  probe: (port: number) => Effect.Effect<boolean>,
+  maxAttempts: number = MAX_PORT_ATTEMPTS,
+) {
+  for (const spec of ports) {
+    if (readEnvVar(targetEnv, spec.key) !== undefined) continue;
+    let set = used.get(spec.key);
+    if (set === undefined) {
+      set = new Set<number>();
+      used.set(spec.key, set);
+    }
+    const picked = yield* pickFreePort(resolvePortBase(spec.base, ctx), set, probe, maxAttempts);
+    for (const other of ports) {
+      if (other.key !== spec.key) used.get(other.key)?.add(picked);
+    }
+  }
+  return computePortEdits(targetEnv, ports, used, ctx);
+});
+
 // Resolve which worktree we're isolating — creating it first with `git worktree
 // add` when --create is given.
 export const resolveTarget = Effect.fn("homestead/resolve-target")(function* (
@@ -164,6 +229,7 @@ export const resolvePlan = Effect.fn("homestead/resolve-plan")(function* (
   repo: Repo,
   target: Target,
   config: HomesteadConfig,
+  probe: (port: number) => Effect.Effect<boolean> = (port) => probeTcp(PROBE_HOST, port, PROBE_TIMEOUT_MS),
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
@@ -206,7 +272,9 @@ export const resolvePlan = Effect.fn("homestead/resolve-plan")(function* (
     worktreeDir: target.targetDir,
     env: (key) => readEnvVar(sourceContent, key),
   });
-  const envEdits: Array<readonly [string, string]> = [...computePortEdits(targetEnv, ports, used, portCtx)];
+  const envEdits: Array<readonly [string, string]> = [
+    ...(yield* resolvePortEdits(targetEnv, ports, used, portCtx, probe)),
+  ];
 
   // Derived keys (e.g. a per-worktree DATABASE_URL) — the config function reads
   // the SOURCE .env via ctx.env and returns the values to override.

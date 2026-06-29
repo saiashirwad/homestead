@@ -1,10 +1,13 @@
 import { expect, test } from "bun:test";
 import { BunServices } from "@effect/platform-bun";
 import { Effect, Layer } from "effect";
+import { TestConsole } from "effect/testing";
 import { emit, teardownEvents, type HomesteadEvent } from "./events.ts";
 import { runAfterTeardown, runBeforeTeardown } from "./hooks.ts";
 import { makeContext } from "./context.ts";
-import { HerdrTest } from "./herdr/test.ts";
+import { HerdrError } from "./herdr/errors.ts";
+import { HerdrTest, HerdrTestHandle } from "./herdr/test.ts";
+import { removeHerdrWorktree } from "./teardown.ts";
 
 const TestLayer = Layer.provideMerge(HerdrTest, BunServices.layer);
 
@@ -63,6 +66,30 @@ test("teardownEvents constructs start/done pairs", () => {
     phase: "done",
     reviewLabel: "agent:review",
   });
+});
+
+test("removeHerdrWorktree surfaces a failed remove (op + cause) and does not abort teardown", async () => {
+  const PRIMARY = "/repo/primary";
+  const BRANCH = "feat/x";
+
+  const program = Effect.gen(function* () {
+    const handle = yield* HerdrTestHandle;
+    yield* handle.setWorktrees(PRIMARY, [{ branch: BRANCH, open_workspace_id: "ws-7" }]);
+    yield* handle.failRemove(new HerdrError({ op: "worktree.remove", cause: "herdr exited 1: socket closed" }));
+    // If the HerdrError were not caught, this effect would fail and the test
+    // would reject — proving control reaches the git-side teardown that follows.
+    yield* removeHerdrWorktree(PRIMARY, BRANCH);
+    return yield* TestConsole.logLines;
+  });
+
+  const lines = await Effect.runPromise(
+    program.pipe(Effect.provide(Layer.mergeAll(HerdrTest, BunServices.layer, TestConsole.layer))),
+  );
+  const text = lines.map((l) => (Array.isArray(l) ? l.join(" ") : String(l))).join("\n");
+
+  expect(text).toContain("op=worktree.remove");
+  expect(text).toContain("herdr exited 1: socket closed");
+  expect(text).toContain("herdr worktree list");
 });
 
 test("emit delivers teardown events to custom onEvent", async () => {

@@ -1,4 +1,5 @@
 import { Context, Effect, Layer, Ref } from "effect";
+import { HerdrError } from "./errors.ts";
 import { makePolling } from "./poll.ts";
 import { Herdr } from "./service.ts";
 import type { SurfaceKind, WorktreeEntry } from "./types.ts";
@@ -14,6 +15,8 @@ export interface HerdrTestApi {
   readonly script: (paneId: string, transcripts: ReadonlyArray<string>) => Effect.Effect<void>;
   readonly setWorktrees: (cwd: string, worktrees: ReadonlyArray<WorktreeEntry>) => Effect.Effect<void>;
   readonly journal: () => Effect.Effect<HerdrTestJournal>;
+  /** Make the next (and subsequent) `worktree.remove` calls fail with this error; pass undefined to clear. */
+  readonly failRemove: (error: HerdrError | undefined) => Effect.Effect<void>;
 }
 
 export class HerdrTestHandle extends Context.Service<HerdrTestHandle, HerdrTestApi>()("HerdrTestHandle") {}
@@ -32,6 +35,7 @@ const buildHerdrTest = Effect.gen(function* () {
   const readIndex = yield* Ref.make(new Map<string, number>());
   const worktreesByCwd = yield* Ref.make(new Map<string, ReadonlyArray<WorktreeEntry>>());
   const journal = yield* Ref.make(emptyJournal());
+  const removeFailure = yield* Ref.make<HerdrError | undefined>(undefined);
 
   const paneRead = Effect.fn("herdr-test/pane-read")(function* (
     paneId: string,
@@ -64,6 +68,8 @@ const buildHerdrTest = Effect.gen(function* () {
       Ref.update(worktreesByCwd, (map) => new Map(map).set(cwd, worktrees)),
 
     journal: () => Ref.get(journal),
+
+    failRemove: (error) => Ref.set(removeFailure, error),
   };
 
   const herdr: typeof Herdr.Service = {
@@ -105,10 +111,14 @@ const buildHerdrTest = Effect.gen(function* () {
       list: (cwd: string) => Ref.get(worktreesByCwd).pipe(Effect.map((map) => map.get(cwd) ?? [])),
 
       remove: (workspaceId: string) =>
-        Ref.update(journal, (j) => ({
-          ...j,
-          removedWorkspaces: [...j.removedWorkspaces, workspaceId],
-        })),
+        Effect.gen(function* () {
+          const failure = yield* Ref.get(removeFailure);
+          if (failure !== undefined) return yield* failure;
+          yield* Ref.update(journal, (j) => ({
+            ...j,
+            removedWorkspaces: [...j.removedWorkspaces, workspaceId],
+          }));
+        }),
 
       findOpenWorkspaceId: Effect.fn("herdr-test/worktree-find-open-workspace")(function* (cwd: string, branch: string) {
         const worktrees = yield* Ref.get(worktreesByCwd).pipe(Effect.map((map) => map.get(cwd) ?? []));
