@@ -4,10 +4,11 @@ import {
   DEFAULT_LAND_REGEN,
   DEFAULT_LAND_VERIFY,
 } from "./defaults.ts";
-import { capture, runExit } from "./process.ts";
+import { Git } from "./git/service.ts";
+import { runExit } from "./process.ts"; // kept ONLY for verify/regen (non-git) commands
 import { completeBranch } from "./teardown.ts";
 import type { HomesteadConfig, LandConfig } from "./types.ts";
-import { refExists, resolveDefaultBaseRef } from "./worktree/base-ref.ts";
+import { resolveDefaultBaseRef } from "./worktree/base-ref.ts";
 
 // `homestead land <branch...>` — merge a finished branch into the default branch
 // in the PRIMARY checkout, regenerate generated artifacts (a text 3-way merge of
@@ -77,14 +78,6 @@ export type LandOutcome =
   | { readonly _tag: "regen-failed"; readonly command: ReadonlyArray<string> }
   | { readonly _tag: "red" };
 
-const conflictedFiles = Effect.fn("homestead/land-conflicts")(function* (primaryRoot: string) {
-  const out = yield* capture("git", ["diff", "--name-only", "--diff-filter=U"], primaryRoot);
-  return out.split("\n").map((l) => l.trim()).filter((l) => l.length > 0);
-});
-
-const abortMerge = (primaryRoot: string) =>
-  runExit("git", ["merge", "--abort"], { cwd: primaryRoot }).pipe(Effect.asVoid);
-
 // Merge one branch into the (already-checked-out) default branch and gate on green.
 // Returns a LandOutcome; never fails the Effect for a red/conflict (those are
 // reported and reflected in the outcome so the batch can continue).
@@ -93,41 +86,27 @@ export const landBranch = Effect.fn("homestead/land-branch")(function* (
   branch: string,
   settings: LandSettings,
 ) {
-  if (!(yield* refExists(primaryRoot, `refs/heads/${branch}`))) {
+  const git = yield* Git;
+
+  if (!(yield* git.refExists(primaryRoot, `refs/heads/${branch}`))) {
     yield* Console.log(`  ⚠ no local branch '${branch}'`);
     return { _tag: "missing" };
   }
 
-  // Already merged (branch is an ancestor of HEAD)? Nothing to do.
-  const ancestor = yield* runExit("git", ["merge-base", "--is-ancestor", branch, "HEAD"], {
-    cwd: primaryRoot,
-  });
-  if (ancestor === 0) {
+  if (yield* git.mergeBaseIsAncestor(primaryRoot, branch, "HEAD")) {
     yield* Console.log(`  (already merged '${branch}')`);
     return { _tag: "already" };
   }
 
-  const mergeCode = yield* runExit(
-    "git",
-    ["merge", "--no-ff", "--no-commit", branch],
-    { cwd: primaryRoot },
-  );
-  if (mergeCode !== 0) {
-    // A non-zero merge means conflicts (or it stopped at --no-commit). If the
-    // only conflicts are generated files, regeneration resolves them; any other
-    // conflict is a real one and aborts the land.
-    const conflicts = yield* conflictedFiles(primaryRoot);
-    const { real } = partitionConflicts(conflicts, settings.generated);
+  const merge = yield* git.merge(primaryRoot, branch);
+  if (merge._tag === "Conflict") {
+    const { real } = partitionConflicts(merge.files, settings.generated);
     if (real.length > 0) {
       yield* Console.log(`  ⚠ merge conflicts in: ${real.join(", ")} — aborting`);
-      yield* abortMerge(primaryRoot);
+      yield* git.abortMerge(primaryRoot);
       return { _tag: "conflict", files: real };
     }
-    if (conflicts.length > 0) {
-      yield* Console.log(
-        `  (regenerating generated files that conflicted: ${conflicts.join(", ")})`,
-      );
-    }
+    yield* Console.log(`  (regenerating generated files that conflicted: ${merge.files.join(", ")})`);
   }
 
   // Regenerate generated artifacts (overwrites any conflicted/merged versions).
@@ -136,25 +115,22 @@ export const landBranch = Effect.fn("homestead/land-branch")(function* (
     const code = yield* runExit(command!, args, { cwd: primaryRoot });
     if (code !== 0) {
       yield* Console.log(`  ⚠ regen '${cmd.join(" ")}' failed (exit ${code}) — aborting`);
-      yield* abortMerge(primaryRoot);
+      yield* git.abortMerge(primaryRoot);
       return { _tag: "regen-failed", command: cmd };
     }
   }
 
-  // Stage everything (merge result + regenerated files; also resolves any
-  // generated-file conflicts), then run the gate.
-  yield* runExit("git", ["add", "-A"], { cwd: primaryRoot });
+  yield* git.addAll(primaryRoot);
 
   const [vCmd, ...vArgs] = settings.verify;
-  const verifyCode =
-    vCmd === undefined ? 0 : yield* runExit(vCmd, vArgs, { cwd: primaryRoot });
+  const verifyCode = vCmd === undefined ? 0 : yield* runExit(vCmd, vArgs, { cwd: primaryRoot });
   if (verifyCode !== 0) {
     yield* Console.log(`  ⚠ verify failed (exit ${verifyCode}) — rolling back merge of '${branch}'`);
-    yield* abortMerge(primaryRoot);
+    yield* git.abortMerge(primaryRoot);
     return { _tag: "red" };
   }
 
-  yield* runExit("git", ["commit", "--no-edit"], { cwd: primaryRoot });
+  yield* git.commitNoEdit(primaryRoot);
   yield* Console.log(`  ✓ landed '${branch}'`);
   return { _tag: "landed", branch };
 });
@@ -163,21 +139,18 @@ export const landBranch = Effect.fn("homestead/land-branch")(function* (
 // so the merge starts clean, and pop it afterwards. Returns whether a stash was
 // pushed so the caller can restore exactly once.
 const stashIfDirty = Effect.fn("homestead/land-stash")(function* (primaryRoot: string) {
-  const status = yield* capture("git", ["status", "--porcelain"], primaryRoot);
+  const git = yield* Git;
+  const status = yield* git.status(primaryRoot);
   if (status.trim().length === 0) return false;
   yield* Console.log(`  (stashing primary-checkout WIP)`);
-  const code = yield* runExit(
-    "git",
-    ["stash", "push", "-u", "-m", "homestead land autostash"],
-    { cwd: primaryRoot },
-  );
-  return code === 0;
+  return yield* git.stash.push(primaryRoot, "homestead land autostash");
 });
 
 const popStash = Effect.fn("homestead/land-unstash")(function* (primaryRoot: string) {
+  const git = yield* Git;
   yield* Console.log(`  (restoring primary-checkout WIP)`);
-  const code = yield* runExit("git", ["stash", "pop"], { cwd: primaryRoot });
-  if (code !== 0) {
+  const ok = yield* git.stash.pop(primaryRoot);
+  if (!ok) {
     yield* Console.log(
       `  ⚠ couldn't restore stashed WIP automatically — run 'git stash pop' in ${primaryRoot}`,
     );
@@ -203,7 +176,8 @@ export const runLand = Effect.fn("homestead/run-land")(function* (
   options: RunLandOptions,
 ) {
   const defaultBranch = yield* resolveDefaultBaseRef(primaryRoot);
-  const current = yield* capture("git", ["rev-parse", "--abbrev-ref", "HEAD"], primaryRoot);
+  const git = yield* Git;
+  const current = yield* git.currentBranch(primaryRoot);
   if (current !== defaultBranch) {
     yield* Console.error(
       `[homestead] the primary checkout (${primaryRoot}) is on '${current}', not the default branch '${defaultBranch}'.\n` +
