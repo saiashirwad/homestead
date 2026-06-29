@@ -7,8 +7,11 @@ import type { WorkItem } from "./work-item.ts";
 export type HomesteadEvent =
   | { type: "worktree.creating"; branch: string; targetDir: string; from?: string }
   | {
+      // `item` is present for the issue flow; the issue-free `agent spawn` flow
+      // carries `slug` instead. Exactly one is set.
       type: "agent.launching" | "agent.launched";
-      item: WorkItem;
+      item?: WorkItem;
+      slug?: string;
       command: ReadonlyArray<string>;
       paneId?: string;
       worktreeDir: string;
@@ -50,10 +53,14 @@ export const formatEvent = (e: HomesteadEvent): string | undefined => {
       const fromSuffix = e.from === undefined ? "" : ` (from ${e.from})`;
       return `\n▸ Creating worktree '${e.branch}' at ${e.targetDir}${fromSuffix}`;
     }
-    case "agent.launching":
-      return `\n▸ Launching ${formatCommand(e.command)} for issue #${e.item.number} in ${e.worktreeDir}`;
-    case "agent.launched":
-      return `  ✓ #${e.item.number}: ${formatCommand(e.command)} launched in herdr pane ${e.paneId} — switch in to drive it`;
+    case "agent.launching": {
+      const who = e.item !== undefined ? `issue #${e.item.number}` : `agent ${e.slug ?? "?"}`;
+      return `\n▸ Launching ${formatCommand(e.command)} for ${who} in ${e.worktreeDir}`;
+    }
+    case "agent.launched": {
+      const who = e.item !== undefined ? `#${e.item.number}` : (e.slug ?? "agent");
+      return `  ✓ ${who}: ${formatCommand(e.command)} launched in herdr pane ${e.paneId} — switch in to drive it`;
+    }
     case "pr.launching":
       return `\n▸ ${e.mode === "review" ? "Reviewing" : "Continuing"} PR #${e.pr.number}: ${e.pr.title}`;
     case "pr.launched":

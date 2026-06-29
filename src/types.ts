@@ -54,11 +54,14 @@ export type AgentPromptContext = HomesteadContext & {
 };
 
 // Discriminated by `kind`: the issue surface always carries `item`, the PR
-// surface always carries `pr`. Modeling it as a union lets callbacks narrow on
-// `kind` instead of asserting presence with `!`.
+// surface always carries `pr`, the agent surface (issue-free `agent spawn`)
+// carries neither — its identity is `slug`, which every `HomesteadContext`
+// already has. Modeling it as a union lets callbacks narrow on `kind` instead
+// of asserting presence with `!`.
 export type SurfaceCtx =
   | (HomesteadContext & { readonly kind: "issue"; readonly item: WorkItem })
-  | (HomesteadContext & { readonly kind: "pr"; readonly pr: PrView });
+  | (HomesteadContext & { readonly kind: "pr"; readonly pr: PrView })
+  | (HomesteadContext & { readonly kind: "agent" });
 
 export interface AgentConfig extends Omit<AgentConfigData, "command"> {
   readonly command?:

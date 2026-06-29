@@ -6,7 +6,6 @@ import type {
   AgentConfig,
   AgentPromptContext,
   HomesteadConfig,
-  HomesteadServices,
   Plan,
   SurfaceCtx,
   WorkItem,
@@ -20,8 +19,76 @@ export const resolveSurfaceLabel = (
   ctx: SurfaceCtx,
 ): string => {
   if (cfg !== undefined) return cfg(ctx);
-  return ctx.kind === "issue" ? `issue-${ctx.item.number}` : `pr-${ctx.pr.number}`;
+  switch (ctx.kind) {
+    case "issue":
+      return `issue-${ctx.item.number}`;
+    case "pr":
+      return `pr-${ctx.pr.number}`;
+    case "agent":
+      return `agent-${ctx.slug}`;
+  }
 };
+
+// The agent type, minus the prompt-from-item builder (the issue path resolves
+// the prompt from `item`; the spawn path passes a free-form string straight in).
+type ResolvedAgent = AgentConfig & { readonly prompt?: (ctx: AgentPromptContext) => string };
+
+interface LaunchCoreInput {
+  readonly config: HomesteadConfig;
+  readonly plan: Plan;
+  readonly branch: string;
+  readonly repoName: string;
+  readonly agent: ResolvedAgent;
+  // Already resolved — the issue path builds this from `item`, the spawn path
+  // passes its free-form brief through verbatim.
+  readonly prompt: string;
+  // How to label the herdr surface (issue-<n> / pr-<n> / agent-<slug>).
+  readonly surfaceCtx: SurfaceCtx;
+  // Carried on the launching/launched events; exactly one is set.
+  readonly item?: WorkItem;
+  readonly slug?: string;
+  readonly args?: ReadonlyArray<string>;
+}
+
+// The shared surface-open + seed core. Knows nothing about WorkItem beyond the
+// optional event payload — both `launchAgent` (issue) and `launchFreeAgent`
+// (spawn) funnel through here with an already-resolved prompt.
+const launchCore = Effect.fn("homestead/launch-core")(function* (input: LaunchCoreInput) {
+  const { config, plan, branch, repoName, agent, prompt, surfaceCtx, item, slug, args = [] } = input;
+  const baseCtx = makeContext({
+    repoName,
+    slug: plan.slug,
+    branch,
+    worktreeDir: plan.targetDir,
+    ...(item !== undefined ? { item } : {}),
+  });
+  const commandCtx = { ...baseCtx, args };
+  const spec = toSpec({ ...agent, command: resolveCommand(agent.command, commandCtx) });
+  const surface = agent.surface ?? "worktree";
+  const herdr = yield* Herdr;
+
+  yield* emit(config.onEvent, {
+    type: "agent.launching",
+    ...(item !== undefined ? { item } : {}),
+    ...(slug !== undefined ? { slug } : {}),
+    command: [spec.command],
+    worktreeDir: plan.targetDir,
+  });
+  const paneId = yield* herdr.createSurface(surface, plan.targetDir, resolveSurfaceLabel(agent.surfaceLabel, surfaceCtx));
+
+  yield* launchAndSeed(paneId, spec, prompt, { readyTimeoutMs: agent.readyTimeoutMs });
+  yield* runAfterLaunch(config.afterLaunch, baseCtx, paneId);
+
+  yield* emit(config.onEvent, {
+    type: "agent.launched",
+    ...(item !== undefined ? { item } : {}),
+    ...(slug !== undefined ? { slug } : {}),
+    command: [spec.command],
+    paneId,
+    worktreeDir: plan.targetDir,
+  });
+  return paneId;
+});
 
 export interface LaunchAgentInput {
   readonly config: HomesteadConfig;
@@ -34,34 +101,50 @@ export interface LaunchAgentInput {
 }
 
 export const launchAgent = Effect.fn("homestead/launch-agent")(function* (input: LaunchAgentInput) {
-  const { plan, item, branch, repoName, agent, args = [] } = input;
+  const { config, plan, item, branch, repoName, agent, args = [] } = input;
   const baseCtx = makeContext({ repoName, slug: plan.slug, branch, worktreeDir: plan.targetDir, item });
-  const commandCtx = { ...baseCtx, args };
-  const spec = toSpec({ ...agent, command: resolveCommand(agent.command, commandCtx) });
-  const surface = agent.surface ?? "worktree";
-  const herdr = yield* Herdr;
-
-  yield* emit(input.config.onEvent, {
-    type: "agent.launching",
-    item,
-    command: [spec.command],
-    worktreeDir: plan.targetDir,
-  });
-  const paneId = yield* herdr.createSurface(surface, plan.targetDir, resolveSurfaceLabel(agent.surfaceLabel, {
-    ...baseCtx,
-    kind: "issue",
-    item,
-  }));
-
   const prompt = agent.prompt({ ...baseCtx, item, args });
-  yield* launchAndSeed(paneId, spec, prompt, { readyTimeoutMs: agent.readyTimeoutMs });
-  yield* runAfterLaunch(input.config.afterLaunch, baseCtx, paneId);
-
-  yield* emit(input.config.onEvent, {
-    type: "agent.launched",
+  return yield* launchCore({
+    config,
+    plan,
+    branch,
+    repoName,
+    agent,
+    prompt,
+    surfaceCtx: { ...baseCtx, kind: "issue", item },
     item,
-    command: [spec.command],
-    paneId,
-    worktreeDir: plan.targetDir,
+    args,
+  });
+});
+
+export interface LaunchFreeAgentInput {
+  readonly config: HomesteadConfig;
+  readonly plan: Plan;
+  readonly slug: string;
+  readonly branch: string;
+  readonly repoName: string;
+  // The prompt builder (if any) is ignored — the spawn path seeds `prompt`.
+  readonly agent: ResolvedAgent;
+  readonly prompt: string;
+  readonly args?: ReadonlyArray<string>;
+}
+
+// Issue-free sibling of `launchAgent`: boots an agent in an already-provisioned
+// worktree and seeds a free-form prompt. No `WorkItem` ever reaches it.
+export const launchFreeAgent = Effect.fn("homestead/launch-free-agent")(function* (
+  input: LaunchFreeAgentInput,
+) {
+  const { config, plan, slug, branch, repoName, agent, prompt, args = [] } = input;
+  const baseCtx = makeContext({ repoName, slug: plan.slug, branch, worktreeDir: plan.targetDir });
+  return yield* launchCore({
+    config,
+    plan,
+    branch,
+    repoName,
+    agent,
+    prompt,
+    surfaceCtx: { ...baseCtx, kind: "agent" },
+    slug,
+    args,
   });
 });

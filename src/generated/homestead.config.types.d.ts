@@ -23,6 +23,8 @@ export type SurfaceCtx = (HomesteadContext & {
 }) | (HomesteadContext & {
     readonly kind: "pr";
     readonly pr: PrView;
+}) | (HomesteadContext & {
+    readonly kind: "agent";
 });
 
 export interface HomesteadContext {
@@ -152,7 +154,8 @@ export type HomesteadEvent = {
     from?: string;
 } | {
     type: "agent.launching" | "agent.launched";
-    item: WorkItem;
+    item?: WorkItem;
+    slug?: string;
     command: ReadonlyArray<string>;
     paneId?: string;
     worktreeDir: string;

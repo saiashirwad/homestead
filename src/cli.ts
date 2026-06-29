@@ -25,6 +25,8 @@ import {
   resolveWorktreeDir,
   waitForAgent,
 } from "./agent/wait.ts";
+import { resolveSpawnPrompt, spawnAgent } from "./agent/spawn.ts";
+import { PENDING_JSON, resultForSlug } from "./agent/result.ts";
 import { resolveRepo, setupWorktree } from "./worktree/index.ts";
 import { DEFAULT_REVIEW_LABEL } from "./defaults.ts";
 import type { WorktreeOptions } from "./types.ts";
@@ -315,9 +317,80 @@ const agentWaitCommand = Command.make(
   Command.withDescription("block until the agent signals done/blocked/failed; exit 0/1/2/3"),
 );
 
+const agentSpawnCommand = Command.make(
+  "spawn",
+  {
+    slug: Argument.string("slug").pipe(Argument.withDescription("worktree / branch name for the spawned agent")),
+    promptWords: Argument.string("prompt").pipe(
+      Argument.variadic(),
+      Argument.withDescription("prompt to seed (positional words are joined)"),
+    ),
+    promptFlag: Flag.optional(Flag.string("prompt")).pipe(
+      Flag.withDescription("prompt to seed (alternative to positional); '--prompt -' reads stdin"),
+    ),
+  },
+  ({ slug, promptWords, promptFlag }) =>
+    Effect.gen(function* () {
+      const prompt = yield* resolveSpawnPrompt(
+        promptWords,
+        promptFlag,
+        Effect.promise(() => Bun.stdin.text()),
+      ).pipe(Effect.catchTag("UsageError", (e) => fail(e.message)));
+
+      const repo = yield* resolveRepo();
+      const config = yield* loadConfig(repo.primaryRoot);
+      const agent = yield* requireAgentConfig(config.agent).pipe(
+        Effect.catchTag("UsageError", (e) => fail(e.message)),
+      );
+
+      yield* spawnAgent({
+        config,
+        repo,
+        slug,
+        prompt,
+        agent,
+        createdAt: new Date().toISOString(),
+      }).pipe(
+        Effect.catchTags({
+          HerdrError: (e) => fail(`[homestead] couldn't open the spawned agent in herdr (${e.op})`),
+          HerdrNotAvailable: (e) => fail(e.reason),
+          HerdrTimeout: (e) => fail(explainTimeout(e, "[homestead] ")),
+        }),
+      );
+    }),
+).pipe(
+  Command.withDescription("provision an issue-less worktree + boot an agent on a free-form prompt"),
+);
+
+const agentResultCommand = Command.make(
+  "result",
+  {
+    slug: Argument.string("slug").pipe(Argument.withDescription("slug passed to `agent spawn`")),
+  },
+  ({ slug }) =>
+    Effect.gen(function* () {
+      const repo = yield* resolveRepo();
+      const config = yield* loadConfigOrUndefined(repo.primaryRoot);
+      const result = yield* resultForSlug(repo.repoName, slug, config);
+
+      switch (result._tag) {
+        case "status":
+          return yield* Console.log(result.body);
+        case "pending":
+          return yield* Console.log(PENDING_JSON);
+        case "unknown":
+          return yield* fail(
+            `[homestead] no spawned agent for slug '${slug}' (no worktree / marker — was it spawned with 'agent spawn'?)`,
+          );
+      }
+    }),
+).pipe(
+  Command.withDescription("print a spawned agent's status sentinel as JSON (pending if not done yet)"),
+);
+
 const agentCommand = Command.make("agent", {}).pipe(
   Command.withDescription("agent lifecycle commands"),
-  Command.withSubcommands([agentWaitCommand]),
+  Command.withSubcommands([agentSpawnCommand, agentResultCommand, agentWaitCommand]),
 );
 
 const homestead = Command.make("homestead", {}).pipe(
