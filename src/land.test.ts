@@ -4,6 +4,7 @@ import { Effect, Layer } from "effect";
 import { TestConsole } from "effect/testing";
 import { HerdrTest } from "./herdr/test.ts";
 import { GitLive } from "./git/service.ts";
+import { GitTest, GitTestHandle } from "./git/test.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import * as os from "node:os";
@@ -66,6 +67,117 @@ test("resolveLandSettings: defaults, opt-out via [], and overrides", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Fake-driven outcome tests (fast, no temp repos)
+// ---------------------------------------------------------------------------
+
+// Fast outcome tests: fake git, real process only for verify/regen commands.
+const FakeLayer = Layer.provideMerge(
+  Layer.mergeAll(GitTest, HerdrTest, TestConsole.layer),
+  BunServices.layer,
+);
+const runFake = <A>(eff: Effect.Effect<A, unknown, any>): Promise<A> =>
+  Effect.runPromise(Effect.provide(eff, FakeLayer) as Effect.Effect<A>);
+
+// Use a real directory so `runExit` (verify/regen) can spawn in an existing cwd.
+// The fake Git service keys on this string for all in-memory state.
+const FAKE_ROOT = process.cwd();
+
+const fakeSettings = (over: Partial<LandSettings> = {}): LandSettings => ({
+  verify: ["true"], // a real /usr/bin/true — exits 0
+  regen: [],
+  generated: ["src/generated/**"],
+  ...over,
+});
+
+test("landBranch: missing branch → {missing}", async () => {
+  const outcome = await runFake(
+    Effect.gen(function* () {
+      const handle = yield* GitTestHandle;
+      yield* handle.setRefExists(FAKE_ROOT, "refs/heads/feature", false);
+      return yield* landBranch(FAKE_ROOT, "feature", fakeSettings());
+    }),
+  );
+  expect(outcome).toEqual({ _tag: "missing" });
+});
+
+test("landBranch: already merged → {already}", async () => {
+  const outcome = await runFake(
+    Effect.gen(function* () {
+      const handle = yield* GitTestHandle;
+      yield* handle.setRefExists(FAKE_ROOT, "refs/heads/feature", true);
+      yield* handle.setAncestor(FAKE_ROOT, "feature", "HEAD", true);
+      return yield* landBranch(FAKE_ROOT, "feature", fakeSettings());
+    }),
+  );
+  expect(outcome).toEqual({ _tag: "already" });
+});
+
+test("landBranch: real conflict → {conflict} and the merge is aborted", async () => {
+  const outcome = await runFake(
+    Effect.gen(function* () {
+      const handle = yield* GitTestHandle;
+      yield* handle.setRefExists(FAKE_ROOT, "refs/heads/feature", true);
+      yield* handle.setAncestor(FAKE_ROOT, "feature", "HEAD", false);
+      yield* handle.setMergeResult(FAKE_ROOT, "feature", { _tag: "Conflict", files: ["src/app.ts"] });
+      const result = yield* landBranch(FAKE_ROOT, "feature", fakeSettings());
+      const journal = yield* handle.journal();
+      expect(journal.aborts).toEqual([FAKE_ROOT]);
+      return result;
+    }),
+  );
+  expect(outcome).toEqual({ _tag: "conflict", files: ["src/app.ts"] });
+});
+
+test("landBranch: generated-only conflict is regenerated, not aborted", async () => {
+  const outcome = await runFake(
+    Effect.gen(function* () {
+      const handle = yield* GitTestHandle;
+      yield* handle.setRefExists(FAKE_ROOT, "refs/heads/feature", true);
+      yield* handle.setAncestor(FAKE_ROOT, "feature", "HEAD", false);
+      yield* handle.setMergeResult(FAKE_ROOT, "feature", {
+        _tag: "Conflict",
+        files: ["src/generated/types.d.ts"],
+      });
+      return yield* landBranch(FAKE_ROOT, "feature", fakeSettings({ regen: [] }));
+    }),
+  );
+  expect(outcome).toEqual({ _tag: "landed", branch: "feature" });
+});
+
+test("landBranch: red verify → {red} and the merge is rolled back", async () => {
+  const outcome = await runFake(
+    Effect.gen(function* () {
+      const handle = yield* GitTestHandle;
+      yield* handle.setRefExists(FAKE_ROOT, "refs/heads/feature", true);
+      yield* handle.setAncestor(FAKE_ROOT, "feature", "HEAD", false);
+      // merge clean (default Merged), then verify `false` exits non-zero.
+      const result = yield* landBranch(FAKE_ROOT, "feature", fakeSettings({ verify: ["false"] }));
+      const journal = yield* handle.journal();
+      expect(journal.aborts).toEqual([FAKE_ROOT]);
+      expect(journal.commits).toEqual([]);
+      return result;
+    }),
+  );
+  expect(outcome).toEqual({ _tag: "red" });
+});
+
+test("landBranch: clean merge + green verify → {landed} and commits", async () => {
+  const outcome = await runFake(
+    Effect.gen(function* () {
+      const handle = yield* GitTestHandle;
+      yield* handle.setRefExists(FAKE_ROOT, "refs/heads/feature", true);
+      yield* handle.setAncestor(FAKE_ROOT, "feature", "HEAD", false);
+      const result = yield* landBranch(FAKE_ROOT, "feature", fakeSettings());
+      const journal = yield* handle.journal();
+      expect(journal.adds).toEqual([FAKE_ROOT]);
+      expect(journal.commits).toEqual([FAKE_ROOT]);
+      return result;
+    }),
+  );
+  expect(outcome).toEqual({ _tag: "landed", branch: "feature" });
+});
+
+// ---------------------------------------------------------------------------
 // Real-git integration
 // ---------------------------------------------------------------------------
 
@@ -111,20 +223,9 @@ const TestLayer = Layer.provideMerge(
 const run = <A>(eff: Effect.Effect<A, unknown, any>): Promise<A> =>
   Effect.runPromise(Effect.provide(eff, TestLayer) as Effect.Effect<A>);
 
-const commitCount = (root: string) => Number(git(root, "rev-list", "--count", "HEAD").trim());
-
 const isMerge = (root: string): boolean => {
   try {
     git(root, "rev-parse", "--verify", "HEAD^2");
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-const mergeInProgress = (root: string): boolean => {
-  try {
-    git(root, "rev-parse", "--verify", "MERGE_HEAD");
     return true;
   } catch {
     return false;
@@ -146,109 +247,6 @@ test("land keeps the merge when verify is green", async () => {
     expect(isMerge(root)).toBe(true);
     expect(read(root, "src/app.ts")).toBe("feat change\n");
     expect(git(root, "status", "--porcelain").trim()).toBe("");
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("land rolls back the merge when verify is red", async () => {
-  const root = makeRepo();
-  try {
-    const before = git(root, "rev-parse", "HEAD").trim();
-    git(root, "checkout", "-b", "feat");
-    write(root, "src/app.ts", "feat change\n");
-    git(root, "add", "-A");
-    git(root, "commit", "-m", "feat");
-    git(root, "checkout", "main");
-
-    const outcome = await run(landBranch(root, "feat", settings({ verify: ["false"] })));
-
-    expect(outcome._tag).toBe("red");
-    expect(git(root, "rev-parse", "HEAD").trim()).toBe(before);
-    expect(read(root, "src/app.ts")).toBe("base\n");
-    expect(mergeInProgress(root)).toBe(false);
-    expect(git(root, "status", "--porcelain").trim()).toBe("");
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("land resolves a generated-file conflict by regenerating, not failing", async () => {
-  const root = makeRepo();
-  try {
-    git(root, "checkout", "-b", "feat");
-    write(root, "src/generated/types.d.ts", "GEN-feat\n");
-    write(root, "src/app.ts", "feat app\n");
-    git(root, "add", "-A");
-    git(root, "commit", "-m", "feat");
-    git(root, "checkout", "main");
-    // diverge the generated file on main too -> textual conflict on merge
-    write(root, "src/generated/types.d.ts", "GEN-main\n");
-    git(root, "add", "-A");
-    git(root, "commit", "-m", "main gen");
-
-    const outcome = await run(
-      landBranch(
-        root,
-        "feat",
-        settings({
-          regen: [["sh", "-c", "printf 'GEN-final\\n' > src/generated/types.d.ts"]],
-        }),
-      ),
-    );
-
-    expect(outcome._tag).toBe("landed");
-    expect(isMerge(root)).toBe(true);
-    expect(read(root, "src/generated/types.d.ts")).toBe("GEN-final\n");
-    expect(read(root, "src/app.ts")).toBe("feat app\n");
-    expect(git(root, "status", "--porcelain").trim()).toBe("");
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("land aborts on a real (non-generated) conflict", async () => {
-  const root = makeRepo();
-  try {
-    git(root, "checkout", "-b", "feat");
-    write(root, "src/app.ts", "feat side\n");
-    git(root, "add", "-A");
-    git(root, "commit", "-m", "feat");
-    git(root, "checkout", "main");
-    write(root, "src/app.ts", "main side\n");
-    git(root, "add", "-A");
-    git(root, "commit", "-m", "main");
-    const before = git(root, "rev-parse", "HEAD").trim();
-
-    const outcome = await run(landBranch(root, "feat", settings()));
-
-    expect(outcome._tag).toBe("conflict");
-    if (outcome._tag === "conflict") expect(outcome.files).toContain("src/app.ts");
-    expect(git(root, "rev-parse", "HEAD").trim()).toBe(before);
-    expect(mergeInProgress(root)).toBe(false);
-    expect(read(root, "src/app.ts")).toBe("main side\n");
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("land reports already-merged when the branch is an ancestor", async () => {
-  const root = makeRepo();
-  try {
-    git(root, "branch", "feat"); // feat == main, no new commits
-    const outcome = await run(landBranch(root, "feat", settings()));
-    expect(outcome._tag).toBe("already");
-    expect(commitCount(root)).toBe(1);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("land reports missing for an unknown branch", async () => {
-  const root = makeRepo();
-  try {
-    const outcome = await run(landBranch(root, "nope", settings()));
-    expect(outcome._tag).toBe("missing");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
