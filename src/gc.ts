@@ -1,12 +1,11 @@
 import { Console, Effect, FileSystem, Option, Path } from "effect";
-import type { ChildProcessSpawner } from "effect/unstable/process";
 import { resolve as resolvePath } from "node:path";
 import * as readline from "node:readline";
-import { parseWorktreePorcelain, type WorktreePorcelainEntry } from "./git/porcelain.ts";
+import type { WorktreePorcelainEntry } from "./git/porcelain.ts";
+import { Git } from "./git/service.ts";
 import { Herdr } from "./herdr/service.ts";
 import { openWorkspaceIdForBranch, type WorktreeEntry } from "./herdr/types.ts";
 import { runAfterTeardown } from "./hooks.ts";
-import { capture, runExit } from "./process.ts";
 import { makeContext } from "./context.ts";
 import { readEnvVar, slugify } from "./text.ts";
 import {
@@ -286,20 +285,14 @@ export const parseGitStatus = (out: string): { dirty: boolean; unpushed: boolean
   return { dirty, unpushed: !hasUpstream || ahead > 0 };
 };
 
-// capture() demotes spawn/IO failure to a defect (it's dev tooling); the scan
-// must survive a git hiccup without dying, so recover defects to "".
-const safeCapture = (
-  command: string,
-  args: ReadonlyArray<string>,
-  cwd?: string,
-): Effect.Effect<string, never, ChildProcessSpawner.ChildProcessSpawner> =>
-  capture(command, args, cwd).pipe(Effect.catchDefect(() => Effect.succeed("")));
-
 // `--branch --porcelain=v2` always prints the `# branch.*` header for a valid
 // git dir, so an empty result means the command failed — fail safe (dirty +
 // unpushed) so a probe error never lets gc reclaim live work.
+// git.statusV2 dies on spawn/IO failure, so recover defects to "" (same
+// fail-safe path: "" → dirty+unpushed, never reclaim live work).
 const statusOf = (dir: string) =>
-  safeCapture("git", ["status", "--porcelain=v2", "--branch"], dir).pipe(
+  Git.pipe(
+    Effect.flatMap((git) => git.statusV2(dir).pipe(Effect.catchDefect(() => Effect.succeed("")))),
     Effect.map((out) => (out === "" ? { dirty: true, unpushed: true } : parseGitStatus(out))),
   );
 
@@ -311,17 +304,15 @@ const statusOf = (dir: string) =>
 export const scanGc = Effect.fn("homestead/scan-gc")(function* (
   repo: Repo,
   options: GcOptions,
-  gitWorktreeList: Effect.Effect<string, never, ChildProcessSpawner.ChildProcessSpawner> = capture(
-    "git",
-    ["worktree", "list", "--porcelain"],
-    repo.startCwd,
+  gitWorktreeList: Effect.Effect<ReadonlyArray<WorktreePorcelainEntry>, never, Git> = Git.pipe(
+    Effect.flatMap((git) => git.worktree.list(repo.startCwd)),
   ),
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
   const herdr = yield* Herdr;
 
-  const gitWorktrees = parseWorktreePorcelain(yield* gitWorktreeList);
+  const gitWorktrees = yield* gitWorktreeList;
   const stateFiles = yield* listTrackedBranches(repo.repoName);
   const herdrWorktrees = Option.getOrUndefined(
     yield* herdr.worktree.list(repo.startCwd).pipe(Effect.option),
@@ -374,11 +365,11 @@ export const scanGc = Effect.fn("homestead/scan-gc")(function* (
     if (status.unpushed) unpushedDirs.add(k);
   }
 
+  const git = yield* Git;
   const localBranches = new Set(
-    (yield* safeCapture("git", ["for-each-ref", "--format=%(refname:short)", "refs/heads"], repo.startCwd))
-      .split("\n")
-      .map((l) => l.trim())
-      .filter((l) => l !== ""),
+    yield* git
+      .branch.listLocal(repo.startCwd)
+      .pipe(Effect.catchDefect(() => Effect.succeed([] as string[]))),
   );
 
   return classifyGc({
@@ -496,17 +487,15 @@ const reclaimItem = Effect.fn("homestead/gc-reclaim-item")(function* (
 ) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
+  const git = yield* Git;
   const label = item.branch ?? item.slug ?? item.worktreePath ?? "(unknown)";
   yield* Console.log(`\n▸ reclaim ${label} (${item.reason})`);
 
   if (item.branch !== undefined) yield* removeHerdrWorktree(repo.primaryRoot, item.branch);
   if (item.worktreePath !== undefined) {
-    yield* Console.log(`  git worktree remove --force ${item.worktreePath}`);
-    yield* runExit("git", ["worktree", "remove", "--force", item.worktreePath], {
-      cwd: repo.primaryRoot,
-    });
+    yield* git.worktree.remove(repo.primaryRoot, item.worktreePath);
   }
-  yield* runExit("git", ["worktree", "prune"], { cwd: repo.primaryRoot });
+  yield* git.worktree.prune(repo.primaryRoot);
 
   // markStopped IS the GitHub-WIP reversal + state-file delete; it's keyed by
   // slug, slugify is idempotent, and a missing state file is a clean no-op.

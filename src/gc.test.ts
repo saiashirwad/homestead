@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { BunServices } from "@effect/platform-bun";
 import { Context, Effect, FileSystem, Layer, Path } from "effect";
-import type { ChildProcessSpawner } from "effect/unstable/process";
 import * as fsSync from "node:fs";
 import * as os from "node:os";
 import { resolve } from "node:path";
@@ -11,6 +10,7 @@ import {
   scanGc,
   type GcClassifyInput,
 } from "./gc.ts";
+import { Git, GitLive } from "./git/service.ts";
 import { Herdr } from "./herdr/service.ts";
 import { HerdrError } from "./herdr/errors.ts";
 import { openWorkspaceIdForBranch, type WorktreeEntry } from "./herdr/types.ts";
@@ -260,11 +260,6 @@ const writeFile = (file: string, content: string) => {
 const writeTrackingState = (branch: string, st: object) =>
   writeFile(`${stateDirFor(repoName)}/${slugify(branch)}.json`, JSON.stringify(st));
 
-const porcelain = (entries: ReadonlyArray<{ path: string; branch?: string }>): string =>
-  entries
-    .map((e) => `worktree ${e.path}\n${e.branch !== undefined ? `branch refs/heads/${e.branch}\n` : ""}`)
-    .join("\n");
-
 const stubHerdr = (
   list: (cwd: string) => Effect.Effect<ReadonlyArray<WorktreeEntry>, HerdrError>,
 ): Layer.Layer<Herdr> => {
@@ -288,9 +283,12 @@ const stubHerdr = (
 const noWorktrees = stubHerdr(() => Effect.succeed([]));
 
 const run = <A>(
-  effect: Effect.Effect<A, unknown, FileSystem.FileSystem | Path.Path | ChildProcessSpawner.ChildProcessSpawner | Herdr>,
+  effect: Effect.Effect<A, unknown, FileSystem.FileSystem | Path.Path | Git | Herdr>,
   herdr: Layer.Layer<Herdr> = noWorktrees,
-): Promise<A> => Effect.runPromise(effect.pipe(Effect.provide(Layer.mergeAll(BunServices.layer, herdr))));
+): Promise<A> =>
+  Effect.runPromise(
+    effect.pipe(Effect.provide(Layer.provideMerge(Layer.mergeAll(GitLive, herdr), BunServices.layer))),
+  );
 
 const OPTIONS = { prune: false, yes: false, branches: false, keepRemote: false, json: false };
 
@@ -302,7 +300,7 @@ test("scanGc: stale state (worktreeDir absent on disk) ⇒ reclaim, and it mutat
   expect(fsSync.existsSync(stateFile)).toBe(true);
 
   const plan = await run(
-    scanGc(REPO, OPTIONS, Effect.succeed(porcelain([{ path: REPO.primaryRoot, branch: "main" }]))),
+    scanGc(REPO, OPTIONS, Effect.succeed([{ path: REPO.primaryRoot, branch: "main" }])),
   );
 
   expect(plan.reclaim).toHaveLength(1);
@@ -321,7 +319,7 @@ test("scanGc: a live tracked worktree on disk is not reclaimed", async () => {
     scanGc(
       REPO,
       OPTIONS,
-      Effect.succeed(porcelain([{ path: REPO.primaryRoot, branch: "main" }, { path: live, branch: "live" }])),
+      Effect.succeed([{ path: REPO.primaryRoot, branch: "main" }, { path: live, branch: "live" }]),
     ),
   );
   expect(plan.reclaim).toEqual([]);
@@ -338,7 +336,7 @@ test("scanGc: auto-created worktree (.homestead-agent.json) with a clean .env-on
     scanGc(
       REPO,
       OPTIONS,
-      Effect.succeed(porcelain([{ path: REPO.primaryRoot, branch: "main" }, { path: auto, branch: "auto-b" }])),
+      Effect.succeed([{ path: REPO.primaryRoot, branch: "main" }, { path: auto, branch: "auto-b" }]),
     ),
   );
   // statusOf can't run git here ⇒ fails safe to dirty/unpushed ⇒ skipped, never reclaimed.
@@ -352,7 +350,7 @@ test("scanGc: herdr unavailable still yields a plan (pane ids just degrade)", as
   const failing = stubHerdr(() => Effect.fail(new HerdrError({ op: "worktree.list", cause: "boom" })));
 
   const plan = await run(
-    scanGc(REPO, OPTIONS, Effect.succeed(porcelain([{ path: REPO.primaryRoot, branch: "main" }]))),
+    scanGc(REPO, OPTIONS, Effect.succeed([{ path: REPO.primaryRoot, branch: "main" }])),
     failing,
   );
   expect(plan.reclaim).toHaveLength(1);
