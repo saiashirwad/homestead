@@ -47,6 +47,20 @@ test("refExists is true for an existing branch ref, false otherwise", async () =
   }
 });
 
+test("merge returns Merged on a clean fast-forwardable branch", async () => {
+  const root = makeRepo();
+  try {
+    sh(root, "commit", "--allow-empty", "-m", "base");
+    sh(root, "checkout", "-b", "feature");
+    sh(root, "commit", "--allow-empty", "-m", "work");
+    sh(root, "checkout", "main");
+    const result = await run(Effect.flatMap(Git, (git) => git.merge(root, "feature")));
+    expect(result._tag).toBe("Merged");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("symbolicRef returns undefined when the ref is absent", async () => {
   const root = makeRepo();
   try {

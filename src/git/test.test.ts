@@ -3,6 +3,24 @@ import { Effect } from "effect";
 import { Git } from "./service.ts";
 import { GitTest, GitTestHandle } from "./test.ts";
 
+test("GitTest stages a merge conflict and journals the abort", async () => {
+  await Effect.runPromise(
+    Effect.gen(function* () {
+      const handle = yield* GitTestHandle;
+      const git = yield* Git;
+      yield* handle.setMergeResult("/repo", "feature", { _tag: "Conflict", files: ["src/a.ts"] });
+
+      const result = yield* git.merge("/repo", "feature");
+      yield* git.abortMerge("/repo");
+
+      expect(result).toEqual({ _tag: "Conflict", files: ["src/a.ts"] });
+      const journal = yield* handle.journal();
+      expect(journal.merges).toEqual([{ cwd: "/repo", branch: "feature" }]);
+      expect(journal.aborts).toEqual(["/repo"]);
+    }).pipe(Effect.provide(GitTest)),
+  );
+});
+
 test("GitTest stages refExists and symbolicRef responses", async () => {
   await Effect.runPromise(
     Effect.gen(function* () {
