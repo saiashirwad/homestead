@@ -111,6 +111,7 @@ export interface EnvConfig {
   readonly derive?: ((ctx: WorktreeContext) => Record<string, string>) | undefined;
   readonly source?: string | undefined;
   readonly fallback?: string | undefined;
+  readonly derivedKeys?: ReadonlyArray<string> | undefined;
 }
 
 export interface AgentConfig {

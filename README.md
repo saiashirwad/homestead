@@ -24,6 +24,25 @@ homestead complete 21     # merged — remove the worktree and branch
 homestead kill 21         # discard it
 ```
 
+## See everything at once
+
+```bash
+homestead ls
+```
+
+A read-only dashboard — one row per worktree, joining git, each `.env`, tracking
+state, and herdr:
+
+```
+SLUG         BRANCH       PORTS              DB              AGENT     PANE   ORIGIN
+auth-rework  auth-rework  WEB=3001 API=4001  hs_authrework   running   ws-7   you
+issue-142    142          WEB=3002 API=4002  hs_142          done      —      [auto]
+```
+
+Every column degrades to `—` on its own if a source is missing — it never
+mutates anything. The DB column reads the keys you list in `env.derivedKeys`
+straight from each worktree's `.env` (it never re-runs `env.derive`).
+
 ## Someone else's PR
 
 Pull a PR into a real worktree instead of reading a web diff:

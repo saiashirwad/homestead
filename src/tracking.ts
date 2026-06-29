@@ -223,6 +223,38 @@ export const loadTrackingState = Effect.fn("homestead/load-tracking-state")(func
   return state === undefined ? Option.none<TrackingState>() : Option.some(state);
 });
 
+// A homestead-managed branch on disk: the branch-slug recovered from the state
+// file name plus its decoded tracking state. `branch` is the slug (state files
+// are named `${slugify(branch)}.json`), which is exactly what `ls` joins on.
+export interface TrackedBranch {
+  readonly branch: string;
+  readonly state: TrackingState;
+}
+
+// Enumerate every tracking-state file for a repo. Read-only: lists the state
+// dir, decodes each `<slug>.json`, and skips anything missing/unparseable. A
+// missing state dir (no homestead worktrees yet) yields `[]`, never an error.
+export const listTrackedBranches = Effect.fn("homestead/list-tracked-branches")(function* (
+  repoName: string,
+) {
+  const fs = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const dir = stateDir(path, repoName);
+
+  const exists = yield* fs.exists(dir).pipe(Effect.orElseSucceed(() => false));
+  if (!exists) return [] as ReadonlyArray<TrackedBranch>;
+
+  const entries = yield* fs.readDirectory(dir).pipe(Effect.orElseSucceed(() => [] as ReadonlyArray<string>));
+  const tracked: Array<TrackedBranch> = [];
+  for (const entry of entries) {
+    if (!entry.endsWith(".json")) continue;
+    const branch = entry.slice(0, -".json".length);
+    const state = yield* loadTrackingState(repoName, branch);
+    if (Option.isSome(state)) tracked.push({ branch, state: state.value });
+  }
+  return tracked as ReadonlyArray<TrackedBranch>;
+});
+
 export const markStarted = Effect.fn("homestead/mark-started")(function* (
   repoName: string,
   item: WorkItem,

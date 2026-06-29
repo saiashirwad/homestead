@@ -19,6 +19,7 @@ import { launchIssues, requireAgentConfig } from "./issue/provision.ts";
 import { parsePrArg, type PrRef } from "./pr/ref.ts";
 import { launchPr } from "./pr/provision.ts";
 import { closeBranch, completeBranch, killBranch } from "./teardown.ts";
+import { collectDashboard, renderTable } from "./dashboard.ts";
 import {
   exitCodeFor,
   parseCompactDuration,
@@ -315,6 +316,19 @@ const agentWaitCommand = Command.make(
   Command.withDescription("block until the agent signals done/blocked/failed; exit 0/1/2/3"),
 );
 
+const lsCommand = Command.make("ls", {}, () =>
+  Effect.gen(function* () {
+    const repo = yield* resolveRepo();
+    const config = yield* loadConfigOrUndefined(repo.primaryRoot);
+    const rows = yield* collectDashboard(repo, config);
+    if (rows.length === 0) {
+      yield* Console.log("No linked worktrees.");
+      return;
+    }
+    yield* Console.log(renderTable(rows));
+  }),
+).pipe(Command.withDescription("read-only dashboard: one row per worktree (ports, DB, agent, pane, origin)"));
+
 const agentCommand = Command.make("agent", {}).pipe(
   Command.withDescription("agent lifecycle commands"),
   Command.withSubcommands([agentWaitCommand]),
@@ -332,6 +346,7 @@ const homestead = Command.make("homestead", {}).pipe(
     reviewCommand,
     prCommand,
     agentCommand,
+    lsCommand,
   ]),
 );
 

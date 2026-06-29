@@ -31,9 +31,16 @@ export type SetupStep = typeof SetupStepSchema.Type;
 export const EnvConfigDataSchema = Schema.Struct({
   source: Schema.optional(Schema.String),
   fallback: Schema.optional(Schema.String),
+  // Env keys that `derive` produces (e.g. ["DATABASE_URL"]). Purely a
+  // read-only display hint for `homestead ls`'s DB column: the dashboard reads
+  // these keys' values from each worktree's own .env and never executes
+  // `derive`. Declaring them keeps `ls` strictly observational.
+  derivedKeys: Schema.optional(Schema.Array(Schema.String)),
 });
 export type EnvConfigData = typeof EnvConfigDataSchema.Type;
-export const ENV_DATA_FIELDS = ["source", "fallback"] as const satisfies ReadonlyArray<keyof EnvConfigData>;
+export const ENV_DATA_FIELDS = ["source", "fallback", "derivedKeys"] as const satisfies ReadonlyArray<
+  keyof EnvConfigData
+>;
 
 const TrustPromptSchema = Schema.Struct({
   marker: Schema.String,

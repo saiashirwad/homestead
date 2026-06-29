@@ -45,6 +45,9 @@ export default {
     derive: ({ slug, env }) => ({
       DATABASE_URL: withDbName(env("DATABASE_URL") ?? DEFAULT_DB_URL, `myapp_${slug}`),
     }),
+    // Which derived keys `homestead ls` shows in its DB column. Read-only: `ls`
+    // reads these from each worktree's .env, it never re-runs `derive`.
+    derivedKeys: ["DATABASE_URL"],
   },
 
   // Ensure the shared docker Postgres is up before provisioning.
