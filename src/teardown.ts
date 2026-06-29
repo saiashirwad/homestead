@@ -78,6 +78,15 @@ const teardownWorktree = Effect.fn("homestead/teardown-worktree")(function* (
 //      state; PR review never does). No flag overrides this — we must not delete
 //      a PR author's remote head branch.
 //   2. Opt-out: `--keep-remote` skips deletion even for our own branches.
+// The bare `git push --delete` — the caller is responsible for the ownership
+// floor (only ever call this for a branch homestead owns). `gc` reuses this for
+// orphaned branches it has already proven it owns via tracking state.
+export const pushDeleteRemoteBranch = (primaryRoot: string, branch: string) =>
+  runExit("git", ["push", "origin", "--delete", branch], { cwd: primaryRoot }).pipe(
+    Effect.catchDefect(() => Effect.void),
+    Effect.asVoid,
+  );
+
 const deleteRemoteBranch = Effect.fn("homestead/delete-remote-branch")(function* (
   primaryRoot: string,
   branch: string,
@@ -89,12 +98,10 @@ const deleteRemoteBranch = Effect.fn("homestead/delete-remote-branch")(function*
     return;
   }
   if (Option.isNone(tracked)) return;
-  yield* runExit("git", ["push", "origin", "--delete", branch], { cwd: primaryRoot }).pipe(
-    Effect.catchDefect(() => Effect.void),
-  );
+  yield* pushDeleteRemoteBranch(primaryRoot, branch);
 });
 
-const deleteLocalBranch = Effect.fn("homestead/delete-local-branch")(function* (primaryRoot: string, branch: string) {
+export const deleteLocalBranch = Effect.fn("homestead/delete-local-branch")(function* (primaryRoot: string, branch: string) {
   if (yield* refExists(primaryRoot, `refs/heads/${branch}`)) {
     const code = yield* runExit("git", ["branch", "-D", branch], { cwd: primaryRoot });
     if (code !== 0) {

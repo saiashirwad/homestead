@@ -20,6 +20,7 @@ import { parsePrArg, type PrRef } from "./pr/ref.ts";
 import { launchPr } from "./pr/provision.ts";
 import { closeBranch, completeBranch, killBranch } from "./teardown.ts";
 import { collectDashboard, renderTable } from "./dashboard.ts";
+import { runGc } from "./gc.ts";
 import {
   exitCodeFor,
   parseCompactDuration,
@@ -402,6 +403,34 @@ const lsCommand = Command.make("ls", {}, () =>
   }),
 ).pipe(Command.withDescription("read-only dashboard: one row per worktree (ports, DB, agent, pane, origin)"));
 
+const gcCommand = Command.make(
+  "gc",
+  {
+    prune: Flag.boolean("prune").pipe(
+      Flag.withDescription("actually reclaim (default: dry-run — change nothing)"),
+    ),
+    yes: Flag.boolean("yes").pipe(
+      Flag.withAlias("y"),
+      Flag.withDescription("skip the confirmation prompt when pruning"),
+    ),
+    branches: Flag.boolean("branches").pipe(
+      Flag.withDescription("also delete orphaned homestead-owned branches"),
+    ),
+    keepRemote: Flag.boolean("keep-remote").pipe(
+      Flag.withDescription("never delete remote branches (mirrors kill/complete)"),
+    ),
+    json: Flag.boolean("json").pipe(Flag.withDescription("emit the machine-readable plan")),
+  },
+  ({ prune, yes, branches, keepRemote, json }) =>
+    Effect.gen(function* () {
+      const repo = yield* resolveRepo();
+      const config = yield* loadConfigOrUndefined(repo.primaryRoot);
+      yield* runGc(repo, config, { prune, yes, branches, keepRemote, json });
+    }),
+).pipe(
+  Command.withDescription("reconcile + reclaim orphaned worktrees, state, GitHub signals, and branches"),
+);
+
 const agentCommand = Command.make("agent", {}).pipe(
   Command.withDescription("agent lifecycle commands"),
   Command.withSubcommands([agentSpawnCommand, agentResultCommand, agentWaitCommand]),
@@ -420,6 +449,7 @@ const homestead = Command.make("homestead", {}).pipe(
     prCommand,
     agentCommand,
     lsCommand,
+    gcCommand,
   ]),
 );
 
