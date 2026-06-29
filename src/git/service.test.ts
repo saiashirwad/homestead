@@ -33,3 +33,29 @@ test("commonDir returns the repo's git dir", async () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("refExists is true for an existing branch ref, false otherwise", async () => {
+  const root = makeRepo();
+  try {
+    sh(root, "commit", "--allow-empty", "-m", "init");
+    const has = await run(Effect.flatMap(Git, (git) => git.refExists(root, "refs/heads/main")));
+    const missing = await run(Effect.flatMap(Git, (git) => git.refExists(root, "refs/heads/nope")));
+    expect(has).toBe(true);
+    expect(missing).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("symbolicRef returns undefined when the ref is absent", async () => {
+  const root = makeRepo();
+  try {
+    sh(root, "commit", "--allow-empty", "-m", "init");
+    const origin = await run(
+      Effect.flatMap(Git, (git) => git.symbolicRef(root, "refs/remotes/origin/HEAD")),
+    );
+    expect(origin).toBeUndefined();
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

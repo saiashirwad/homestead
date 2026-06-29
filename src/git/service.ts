@@ -31,6 +31,16 @@ export class Git extends Context.Service<Git>()("Git", {
 
     return {
       commonDir: (cwd: string) => capture(cwd, ["rev-parse", "--git-common-dir"]),
+
+      refExists: (cwd: string, ref: string) =>
+        exit(cwd, ["show-ref", "--verify", "--quiet", ref]).pipe(Effect.map((code) => code === 0)),
+
+      symbolicRef: (cwd: string, name: string) =>
+        exit(cwd, ["symbolic-ref", "--short", name]).pipe(
+          Effect.flatMap((code) =>
+            code === 0 ? capture(cwd, ["symbolic-ref", "--short", name]) : Effect.succeed(undefined),
+          ),
+        ),
     };
   }),
 }) {}
