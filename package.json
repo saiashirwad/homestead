@@ -40,6 +40,8 @@
   },
   "dependencies": {
     "@effect/platform-bun": "^4.0.0-beta.85",
-    "effect": "^4.0.0-beta.85"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "effect": "^4.0.0-beta.85",
+    "zod": "^4.4.3"
   }
 }

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-import { BunRuntime, BunServices } from "@effect/platform-bun";
-import { Console, Effect, Layer, Option, Schedule } from "effect";
+import { BunRuntime } from "@effect/platform-bun";
+import { Console, Effect, Option, Schedule } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import pkg from "../package.json" with { type: "json" };
 import { loadConfig, loadConfigOrUndefined } from "./config.ts";
@@ -35,17 +35,13 @@ import { promptAgent } from "./agent/prompt.ts";
 import { PENDING_JSON, resultForSlug } from "./agent/result.ts";
 import { finalizeAgentStatus } from "./agent/finalize.ts";
 import { resolveRepo, setupWorktree } from "./worktree/index.ts";
-import { PortAllocator } from "./worktree/ports.ts";
+import { runMcpServer } from "./mcp.ts";
+import { AppLayer } from "./runtime.ts";
 import { DEFAULT_REVIEW_LABEL } from "./defaults.ts";
 import type { WorktreeOptions } from "./types.ts";
 
 const fail = (message: string) =>
   Console.error(message).pipe(Effect.andThen(Effect.fail(new UsageError({ message }))));
-
-const AppLayer = Layer.provideMerge(
-  Layer.mergeAll(Layer.effect(Herdr, Herdr.make), PortAllocator.layer),
-  BunServices.layer,
-);
 
 const issueRef = Argument.string("issue").pipe(
   Argument.filterMap(
@@ -638,6 +634,14 @@ const doctorCommand = Command.make(
   Command.withDescription("audit every worktree for half-provisioning, port conflicts, and stale state"),
 );
 
+// Speak MCP over stdio — for an MCP client to spawn (`{ "command": "homestead",
+// "args": ["mcp"] }`), not a command a human runs by hand. No flags; the server
+// operates on the repo it's launched in. runMcpServer builds its own runtime and
+// blocks until the client disconnects.
+const mcpCommand = Command.make("mcp", {}, () => runMcpServer(pkg.version)).pipe(
+  Command.withDescription("speak MCP over stdio: expose spawn/wait/result/ls/land/plan as typed tools"),
+);
+
 const agentCommand = Command.make("agent", {}).pipe(
   Command.withDescription("agent lifecycle commands"),
   Command.withSubcommands([
@@ -666,6 +670,7 @@ const homestead = Command.make("homestead", {}).pipe(
     lsCommand,
     gcCommand,
     doctorCommand,
+    mcpCommand,
   ]),
 );
 
