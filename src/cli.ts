@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { BunRuntime } from "@effect/platform-bun"
-import { Console, Effect, Option } from "effect"
+import { Console, Effect, Fiber, Option, Stream } from "effect"
 import { Argument, Command, Flag } from "effect/unstable/cli"
 import * as crypto from "node:crypto"
 import pkg from "../package.json" with { type: "json" }
@@ -11,6 +11,31 @@ import { makeServer } from "./rpc/server.ts"
 import { resolveRepo } from "./worktree/repo.ts"
 import { WorkspaceManager } from "./workspace/manager.ts"
 import { AppLayer } from "./runtime.ts"
+import type { HomesteadClient } from "./rpc/shared.ts"
+import type * as Scope from "effect/Scope"
+
+const socketFlag = Flag.optional(Flag.string("socket")).pipe(
+  Flag.withDescription("custom socket path (default: ~/.homestead/run/daemon.sock)"),
+)
+
+const withClient = <A>(
+  socketPath: string,
+  use: (client: HomesteadClient) => Effect.Effect<A, unknown, Scope.Scope>,
+) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const client = yield* makeClient(socketPath)
+      return yield* use(client)
+    }),
+  )
+
+const workspaceClient = (client: HomesteadClient, projectRoot: string, name: string) =>
+  client.getWorkspace({ projectRoot, name })
+
+const printCommandEvent = (event: { readonly data?: string | undefined }) =>
+  Effect.sync(() => {
+    if (event.data !== undefined) process.stdout.write(event.data)
+  })
 
 const initCommand = Command.make("init", {}, () =>
   Effect.gen(function* () {
@@ -50,6 +75,218 @@ const shutdownCommand = Command.make(
       yield* Console.log("✓ Daemon shut down successfully")
     }),
 ).pipe(Command.withDescription("stop the running Homestead daemon"))
+
+const execCommand = Command.make(
+  "exec",
+  {
+    workspace: Argument.string("workspace"),
+    command: Argument.string("command").pipe(Argument.variadic({ min: 1 })),
+    detach: Flag.boolean("detach").pipe(
+      Flag.withDescription("start the command and return without following its output"),
+    ),
+    repo: Flag.optional(Flag.string("repo")).pipe(
+      Flag.withDescription("repository root (default: current working directory repo)"),
+    ),
+    socket: socketFlag,
+  },
+  ({ workspace, command, detach, repo, socket }) => {
+    const socketPath = Option.getOrElse(socket, getDefaultSocketPath)
+    const projectRoot = Option.getOrElse(repo, () => process.cwd())
+    return withClient(socketPath, (client) =>
+      Effect.gen(function* () {
+        const info = yield* workspaceClient(client, projectRoot, workspace)
+        const run = yield* client.startCommand({
+          workspaceId: info.id,
+          command: command[0],
+          args: command.slice(1),
+        })
+        if (detach) {
+          yield* Console.log(run.id)
+          return
+        }
+        yield* Stream.runForEach(
+          client.streamCommandEvents({
+            workspaceId: info.id,
+            runId: run.id,
+            follow: true,
+          }),
+          printCommandEvent,
+        )
+        const completed = yield* client.getCommandRun({
+          workspaceId: info.id,
+          runId: run.id,
+        })
+        if (completed.exitCode !== undefined && completed.exitCode !== 0) {
+          yield* Console.error(`Command exited with status ${completed.exitCode}`)
+        }
+      }),
+    )
+  },
+).pipe(Command.withDescription("run a command inside a Workspace"))
+
+const shellCommand = Command.make(
+  "shell",
+  {
+    workspace: Argument.string("workspace"),
+    repo: Flag.optional(Flag.string("repo")).pipe(
+      Flag.withDescription("repository root (default: current working directory repo)"),
+    ),
+    socket: socketFlag,
+  },
+  ({ workspace, repo, socket }) => {
+    const socketPath = Option.getOrElse(socket, getDefaultSocketPath)
+    const projectRoot = Option.getOrElse(repo, () => process.cwd())
+    return withClient(socketPath, (client) =>
+      Effect.gen(function* () {
+        const info = yield* workspaceClient(client, projectRoot, workspace)
+        const run = yield* client.startCommand({
+          workspaceId: info.id,
+          command: process.env.SHELL ?? "sh",
+          args: [],
+        })
+        yield* Console.log(`Command Run ${run.id} started. Use Ctrl-D to close the shell.`)
+        const context = yield* Effect.context<Scope.Scope>()
+        const inputFiber = yield* Effect.forkChild(
+          Effect.callback<void>((resume) => {
+            const onData = (data: string | Buffer) => {
+              Effect.runForkWith(context)(
+                Effect.provideContext(
+                  client
+                    .writeCommandInput({
+                      workspaceId: info.id,
+                      runId: run.id,
+                      data: data.toString(),
+                    })
+                    .pipe(Effect.ignore),
+                  context,
+                ),
+              )
+            }
+            const onEnd = () => {
+              Effect.runForkWith(context)(
+                Effect.provideContext(
+                  client
+                    .writeCommandInput({
+                      workspaceId: info.id,
+                      runId: run.id,
+                      data: "\u0004",
+                    })
+                    .pipe(Effect.ignore),
+                  context,
+                ),
+              )
+              resume(Effect.void)
+            }
+            process.stdin.setEncoding("utf8")
+            process.stdin.on("data", onData)
+            process.stdin.once("end", onEnd)
+            return Effect.sync(() => {
+              process.stdin.off("data", onData)
+              process.stdin.off("end", onEnd)
+            })
+          }),
+        )
+        yield* Stream.runForEach(
+          client.streamCommandEvents({
+            workspaceId: info.id,
+            runId: run.id,
+            follow: true,
+          }),
+          printCommandEvent,
+        )
+        yield* Fiber.interrupt(inputFiber)
+      }),
+    )
+  },
+).pipe(Command.withDescription("start a shell inside a Workspace"))
+
+const psCommand = Command.make(
+  "ps",
+  {
+    workspace: Argument.string("workspace"),
+    repo: Flag.optional(Flag.string("repo")).pipe(
+      Flag.withDescription("repository root (default: current working directory repo)"),
+    ),
+    socket: socketFlag,
+  },
+  ({ workspace, repo, socket }) => {
+    const socketPath = Option.getOrElse(socket, getDefaultSocketPath)
+    const projectRoot = Option.getOrElse(repo, () => process.cwd())
+    return withClient(socketPath, (client) =>
+      Effect.gen(function* () {
+        const info = yield* workspaceClient(client, projectRoot, workspace)
+        const runs = yield* client.listCommandRuns({ workspaceId: info.id })
+        if (runs.length === 0) {
+          yield* Console.log("No Command Runs.")
+          return
+        }
+        yield* Console.log("RUN ID                                 STATE       COMMAND")
+        for (const run of runs) {
+          yield* Console.log(
+            `${run.id.padEnd(38)} ${run.state.padEnd(11)} ${[run.command, ...run.args].join(" ")}`,
+          )
+        }
+      }),
+    )
+  },
+).pipe(Command.withDescription("list Command Runs in a Workspace"))
+
+const logsCommand = Command.make(
+  "logs",
+  {
+    workspace: Argument.string("workspace"),
+    runId: Argument.string("run"),
+    follow: Flag.boolean("follow").pipe(Flag.withDescription("continue until the run exits")),
+    since: Flag.optional(Flag.integer("since")).pipe(
+      Flag.withDescription("replay events after this sequence number"),
+    ),
+    repo: Flag.optional(Flag.string("repo")).pipe(
+      Flag.withDescription("repository root (default: current working directory repo)"),
+    ),
+    socket: socketFlag,
+  },
+  ({ workspace, runId, follow, since, repo, socket }) => {
+    const socketPath = Option.getOrElse(socket, getDefaultSocketPath)
+    const projectRoot = Option.getOrElse(repo, () => process.cwd())
+    return withClient(socketPath, (client) =>
+      Effect.gen(function* () {
+        const info = yield* workspaceClient(client, projectRoot, workspace)
+        yield* Stream.runForEach(
+          client.streamCommandEvents({
+            workspaceId: info.id,
+            runId,
+            since: Option.getOrUndefined(since),
+            follow,
+          }),
+          printCommandEvent,
+        )
+      }),
+    )
+  },
+).pipe(Command.withDescription("replay Command Run output"))
+
+const cancelCommand = Command.make(
+  "cancel",
+  {
+    workspace: Argument.string("workspace"),
+    runId: Argument.string("run"),
+    repo: Flag.optional(Flag.string("repo")).pipe(
+      Flag.withDescription("repository root (default: current working directory repo)"),
+    ),
+    socket: socketFlag,
+  },
+  ({ workspace, runId, repo, socket }) => {
+    const socketPath = Option.getOrElse(socket, getDefaultSocketPath)
+    const projectRoot = Option.getOrElse(repo, () => process.cwd())
+    return withClient(socketPath, (client) =>
+      Effect.gen(function* () {
+        const info = yield* workspaceClient(client, projectRoot, workspace)
+        yield* client.cancelCommand({ workspaceId: info.id, runId })
+        yield* Console.log(`✓ Command Run ${runId} cancelled`)
+      }),
+    )
+  },
+).pipe(Command.withDescription("cancel a running Command Run"))
 
 const serverCommand = Command.make(
   "server",
@@ -247,6 +484,11 @@ const homestead = Command.make("homestead", {}).pipe(
     serverCommand,
     pingCommand,
     shutdownCommand,
+    shellCommand,
+    execCommand,
+    psCommand,
+    logsCommand,
+    cancelCommand,
   ]),
 )
 

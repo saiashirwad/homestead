@@ -2,10 +2,14 @@ import { Rpc, RpcClient, RpcGroup } from "effect/unstable/rpc"
 import type { Rpcs } from "effect/unstable/rpc/RpcGroup"
 import type { RpcClientError } from "effect/unstable/rpc/RpcClientError"
 import { Effect, Schema } from "effect"
+import type * as Stream from "effect/Stream"
 import * as os from "node:os"
 import * as path from "node:path"
 import {
   InvalidInput,
+  CommandInputFailure,
+  CommandNotFound,
+  CommandStartFailure,
   ProvisionFailure,
   RepositoryNotFound,
   RequestIdConflict,
@@ -13,14 +17,21 @@ import {
   WorktreeNotFound,
   WorktreeRemovalRefused,
   WorkspaceAlreadyExists,
+  WorkspaceFileError,
+  WorkspaceHandleNotFound,
   WorkspaceNotFound,
   WorkspacePersistenceFailure,
   WorkspaceRemovalRefused,
 } from "../errors.ts"
 import {
+  CommandEvent,
+  CommandRun,
   RemoveWorkspaceResult,
   RemoveWorktreeResult,
   WorkspaceInfo,
+  WorkspaceFileContent,
+  WorkspaceFileEntry,
+  WorkspaceFileStat,
   WorktreeInfo,
 } from "../types.ts"
 
@@ -149,6 +160,134 @@ export class ReconcileWorkspaces extends Rpc.make("v1/workspace/reconcile", {
   error: Schema.Union([InvalidInput, RepositoryNotFound, WorkspacePersistenceFailure]),
 }) {}
 
+const WorkspaceFileErrors = Schema.Union([
+  WorkspaceFileError,
+  WorkspaceHandleNotFound,
+  WorkspacePersistenceFailure,
+])
+
+export class ReadWorkspaceFile extends Rpc.make("v1/workspace/file/read", {
+  payload: {
+    workspaceId: Schema.String,
+    path: Schema.String,
+  },
+  success: WorkspaceFileContent,
+  error: WorkspaceFileErrors,
+}) {}
+
+export class WriteWorkspaceFile extends Rpc.make("v1/workspace/file/write", {
+  payload: {
+    workspaceId: Schema.String,
+    path: Schema.String,
+    content: Schema.String,
+  },
+  success: Schema.Void,
+  error: WorkspaceFileErrors,
+}) {}
+
+export class StatWorkspaceFile extends Rpc.make("v1/workspace/file/stat", {
+  payload: {
+    workspaceId: Schema.String,
+    path: Schema.String,
+  },
+  success: WorkspaceFileStat,
+  error: WorkspaceFileErrors,
+}) {}
+
+export class ListWorkspaceDirectory extends Rpc.make("v1/workspace/file/list", {
+  payload: {
+    workspaceId: Schema.String,
+    path: Schema.optional(Schema.String),
+  },
+  success: Schema.Array(WorkspaceFileEntry),
+  error: WorkspaceFileErrors,
+}) {}
+
+export class MakeWorkspaceDirectory extends Rpc.make("v1/workspace/file/mkdir", {
+  payload: {
+    workspaceId: Schema.String,
+    path: Schema.String,
+  },
+  success: Schema.Void,
+  error: WorkspaceFileErrors,
+}) {}
+
+export class RemoveWorkspacePath extends Rpc.make("v1/workspace/file/remove", {
+  payload: {
+    workspaceId: Schema.String,
+    path: Schema.String,
+    recursive: Schema.optional(Schema.Boolean),
+  },
+  success: Schema.Void,
+  error: WorkspaceFileErrors,
+}) {}
+
+const CommandStartErrors = Schema.Union([
+  CommandStartFailure,
+  WorkspaceFileError,
+  WorkspaceHandleNotFound,
+  WorkspacePersistenceFailure,
+])
+
+export class StartCommand extends Rpc.make("v1/workspace/command/start", {
+  payload: {
+    workspaceId: Schema.String,
+    command: Schema.String,
+    args: Schema.Array(Schema.String),
+    cwd: Schema.optional(Schema.String),
+    env: Schema.optional(Schema.Record(Schema.String, Schema.String)),
+  },
+  success: CommandRun,
+  error: CommandStartErrors,
+}) {}
+
+export class GetCommandRun extends Rpc.make("v1/workspace/command/get", {
+  payload: {
+    workspaceId: Schema.String,
+    runId: Schema.String,
+  },
+  success: CommandRun,
+  error: CommandNotFound,
+}) {}
+
+export class ListCommandRuns extends Rpc.make("v1/workspace/command/list", {
+  payload: {
+    workspaceId: Schema.String,
+  },
+  success: Schema.Array(CommandRun),
+}) {}
+
+export class WriteCommandInput extends Rpc.make("v1/workspace/command/input", {
+  payload: {
+    workspaceId: Schema.String,
+    runId: Schema.String,
+    data: Schema.String,
+  },
+  success: Schema.Void,
+  error: Schema.Union([CommandNotFound, CommandInputFailure]),
+}) {}
+
+export class CancelCommand extends Rpc.make("v1/workspace/command/cancel", {
+  payload: {
+    workspaceId: Schema.String,
+    runId: Schema.String,
+  },
+  success: Schema.Void,
+  error: CommandNotFound,
+}) {}
+
+export class StreamCommandEvents extends Rpc.make("v1/workspace/command/events", {
+  payload: {
+    workspaceId: Schema.String,
+    runId: Schema.String,
+    since: Schema.optional(Schema.Finite),
+    follow: Schema.optional(Schema.Boolean),
+  },
+  success: CommandEvent,
+  error: CommandNotFound,
+  stream: true,
+}) {}
+
 export const HomesteadRpcs = RpcGroup.make(
   Ping,
   Shutdown,
@@ -160,6 +299,18 @@ export const HomesteadRpcs = RpcGroup.make(
   ListWorkspaces,
   RemoveWorkspace,
   ReconcileWorkspaces,
+  ReadWorkspaceFile,
+  WriteWorkspaceFile,
+  StatWorkspaceFile,
+  ListWorkspaceDirectory,
+  MakeWorkspaceDirectory,
+  RemoveWorkspacePath,
+  StartCommand,
+  GetCommandRun,
+  ListCommandRuns,
+  WriteCommandInput,
+  CancelCommand,
+  StreamCommandEvents,
 )
 
 export type HomesteadRpcList = Rpcs<typeof HomesteadRpcs>
@@ -221,6 +372,86 @@ export interface HomesteadClient {
     void,
     InvalidInput | RepositoryNotFound | WorkspacePersistenceFailure | RpcClientError
   >
+  readonly readWorkspaceFile: (payload: {
+    readonly workspaceId: string
+    readonly path: string
+  }) => Effect.Effect<
+    WorkspaceFileContent,
+    WorkspaceFileError | WorkspaceHandleNotFound | WorkspacePersistenceFailure | RpcClientError
+  >
+  readonly writeWorkspaceFile: (payload: {
+    readonly workspaceId: string
+    readonly path: string
+    readonly content: string
+  }) => Effect.Effect<
+    void,
+    WorkspaceFileError | WorkspaceHandleNotFound | WorkspacePersistenceFailure | RpcClientError
+  >
+  readonly statWorkspaceFile: (payload: {
+    readonly workspaceId: string
+    readonly path: string
+  }) => Effect.Effect<
+    WorkspaceFileStat,
+    WorkspaceFileError | WorkspaceHandleNotFound | WorkspacePersistenceFailure | RpcClientError
+  >
+  readonly listWorkspaceDirectory: (payload: {
+    readonly workspaceId: string
+    readonly path?: string | undefined
+  }) => Effect.Effect<
+    ReadonlyArray<WorkspaceFileEntry>,
+    WorkspaceFileError | WorkspaceHandleNotFound | WorkspacePersistenceFailure | RpcClientError
+  >
+  readonly makeWorkspaceDirectory: (payload: {
+    readonly workspaceId: string
+    readonly path: string
+  }) => Effect.Effect<
+    void,
+    WorkspaceFileError | WorkspaceHandleNotFound | WorkspacePersistenceFailure | RpcClientError
+  >
+  readonly removeWorkspacePath: (payload: {
+    readonly workspaceId: string
+    readonly path: string
+    readonly recursive?: boolean | undefined
+  }) => Effect.Effect<
+    void,
+    WorkspaceFileError | WorkspaceHandleNotFound | WorkspacePersistenceFailure | RpcClientError
+  >
+  readonly startCommand: (payload: {
+    readonly workspaceId: string
+    readonly command: string
+    readonly args: ReadonlyArray<string>
+    readonly cwd?: string | undefined
+    readonly env?: Readonly<Record<string, string>> | undefined
+  }) => Effect.Effect<
+    CommandRun,
+    | CommandStartFailure
+    | WorkspaceFileError
+    | WorkspaceHandleNotFound
+    | WorkspacePersistenceFailure
+    | RpcClientError
+  >
+  readonly getCommandRun: (payload: {
+    readonly workspaceId: string
+    readonly runId: string
+  }) => Effect.Effect<CommandRun, CommandNotFound | RpcClientError>
+  readonly listCommandRuns: (payload: {
+    readonly workspaceId: string
+  }) => Effect.Effect<ReadonlyArray<CommandRun>, RpcClientError>
+  readonly writeCommandInput: (payload: {
+    readonly workspaceId: string
+    readonly runId: string
+    readonly data: string
+  }) => Effect.Effect<void, CommandNotFound | CommandInputFailure | RpcClientError>
+  readonly cancelCommand: (payload: {
+    readonly workspaceId: string
+    readonly runId: string
+  }) => Effect.Effect<void, CommandNotFound | RpcClientError>
+  readonly streamCommandEvents: (payload: {
+    readonly workspaceId: string
+    readonly runId: string
+    readonly since?: number | undefined
+    readonly follow?: boolean | undefined
+  }) => Stream.Stream<CommandEvent, CommandNotFound | RpcClientError>
   readonly createWorktree: (payload: {
     readonly requestId: string
     readonly repoRoot: string
@@ -271,6 +502,18 @@ export const makeHomesteadClient = Effect.gen(function* () {
     listWorkspaces: (payload) => raw["v1/workspace/list"](payload ?? {}),
     removeWorkspace: (payload) => raw["v1/workspace/remove"](payload),
     reconcileWorkspaces: (payload) => raw["v1/workspace/reconcile"](payload ?? {}),
+    readWorkspaceFile: (payload) => raw["v1/workspace/file/read"](payload),
+    writeWorkspaceFile: (payload) => raw["v1/workspace/file/write"](payload),
+    statWorkspaceFile: (payload) => raw["v1/workspace/file/stat"](payload),
+    listWorkspaceDirectory: (payload) => raw["v1/workspace/file/list"](payload),
+    makeWorkspaceDirectory: (payload) => raw["v1/workspace/file/mkdir"](payload),
+    removeWorkspacePath: (payload) => raw["v1/workspace/file/remove"](payload),
+    startCommand: (payload) => raw["v1/workspace/command/start"](payload),
+    getCommandRun: (payload) => raw["v1/workspace/command/get"](payload),
+    listCommandRuns: (payload) => raw["v1/workspace/command/list"](payload),
+    writeCommandInput: (payload) => raw["v1/workspace/command/input"](payload),
+    cancelCommand: (payload) => raw["v1/workspace/command/cancel"](payload),
+    streamCommandEvents: (payload) => raw["v1/workspace/command/events"](payload),
     createWorktree: (payload) => raw["v1/worktree/create"](payload),
     listWorktrees: (payload) => raw["v1/worktree/list"](payload ?? {}),
     removeWorktree: (payload) => raw["v1/worktree/remove"](payload),

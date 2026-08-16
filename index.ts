@@ -11,6 +11,7 @@ export {
   type WorkspaceManagerApi,
   type CreateWorkspaceError,
   type RemoveWorkspaceError,
+  type WorkspaceHandleError,
 } from "./src/workspace/manager.ts"
 export {
   WorkspaceManagerLive,
@@ -46,6 +47,18 @@ export {
   ListWorkspaces,
   RemoveWorkspace,
   ReconcileWorkspaces,
+  ReadWorkspaceFile,
+  WriteWorkspaceFile,
+  StatWorkspaceFile,
+  ListWorkspaceDirectory,
+  MakeWorkspaceDirectory,
+  RemoveWorkspacePath,
+  StartCommand,
+  GetCommandRun,
+  ListCommandRuns,
+  WriteCommandInput,
+  CancelCommand,
+  StreamCommandEvents,
   getDefaultSocketPath,
   type HomesteadClient,
 } from "./src/rpc/shared.ts"
@@ -57,6 +70,8 @@ export {
   WorktreeRemovalRefused,
   WorkspaceAlreadyExists,
   WorkspaceNotFound,
+  WorkspaceHandleNotFound,
+  WorkspaceFileError,
   WorkspaceRemovalRefused,
   WorkspacePersistenceFailure,
   RequestIdConflict,
@@ -66,6 +81,10 @@ export {
   ConfigNotFound,
   ConfigInvalid,
   UsageError,
+  CommandNotFound,
+  CommandStartFailure,
+  CommandInputFailure,
+  CommandPersistenceFailure,
 } from "./src/errors.ts"
 export {
   WorktreeInfo,
@@ -73,6 +92,14 @@ export {
   WorkspaceInfo,
   RemoveWorkspaceResult,
   ProviderCapabilities,
+  WorkspaceFileContent,
+  WorkspaceFileEntry,
+  WorkspaceFileStat,
+  WorkspaceFileType,
+  CommandRun,
+  CommandRunState,
+  CommandEvent,
+  CommandEventType,
   WorkspaceLifecycleState,
   type HomesteadConfig,
   type PortSpec,
@@ -83,3 +110,11 @@ export {
   type WorktreeContext,
   type Plan,
 } from "./src/types.ts"
+export {
+  CommandRuntime,
+  getDefaultCommandRuntimePath,
+  type CommandRuntimeApi,
+  type CommandRuntimeOptions,
+  type CommandEventsRequest,
+  type StartCommandRequest,
+} from "./src/workspace/commands.ts"

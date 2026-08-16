@@ -11,13 +11,17 @@ import {
   Schema,
 } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process"
+import * as nodePath from "node:path"
 import { loadConfigOrUndefined } from "../config.ts"
 import {
   InvalidInput,
+  CommandStartFailure,
   ProvisionFailure,
   RepositoryNotFound,
   RequestIdConflict,
   WorkspaceAlreadyExists,
+  WorkspaceFileError,
+  WorkspaceHandleNotFound,
   WorkspaceNotFound,
   WorkspacePersistenceFailure,
   WorkspaceRemovalRefused,
@@ -25,6 +29,12 @@ import {
 import { Git } from "../git/service.ts"
 import { slugify } from "../text.ts"
 import { RemoveWorkspaceResult, WorkspaceInfo } from "../types.ts"
+import {
+  CommandRun,
+  WorkspaceFileContent,
+  WorkspaceFileEntry,
+  WorkspaceFileStat,
+} from "../types.ts"
 import { provisionTarget } from "../worktree/index.ts"
 import { readProvisionMarker } from "../worktree/marker.ts"
 import { resolveTargetDir } from "../worktree/plan.ts"
@@ -32,6 +42,7 @@ import { PortAllocator } from "../worktree/ports.ts"
 import { runTeardown } from "../worktree/provision.ts"
 import type { HomesteadConfig } from "../types.ts"
 import { WorkspaceProvider, type ProviderWorkspace } from "./provider.ts"
+import { CommandRuntime } from "./commands.ts"
 import { WorkspaceRegistry } from "./registry.ts"
 
 const DEFAULT_CONFIG: HomesteadConfig = {
@@ -77,6 +88,11 @@ export type RemoveWorkspaceError =
   | ProvisionFailure
   | WorkspacePersistenceFailure
 
+export type WorkspaceHandleError =
+  | WorkspaceHandleNotFound
+  | WorkspaceFileError
+  | WorkspacePersistenceFailure
+
 export interface WorkspaceManagerApi {
   readonly validateProjectRoot: (
     projectRoot: string,
@@ -109,6 +125,39 @@ export interface WorkspaceManagerApi {
   readonly reconcile: (request?: {
     readonly projectRoot?: string | undefined
   }) => Effect.Effect<void, InvalidInput | RepositoryNotFound | WorkspacePersistenceFailure>
+  readonly readFile: (request: {
+    readonly workspaceId: string
+    readonly path: string
+  }) => Effect.Effect<WorkspaceFileContent, WorkspaceHandleError>
+  readonly writeFile: (request: {
+    readonly workspaceId: string
+    readonly path: string
+    readonly content: string
+  }) => Effect.Effect<void, WorkspaceHandleError>
+  readonly statFile: (request: {
+    readonly workspaceId: string
+    readonly path: string
+  }) => Effect.Effect<WorkspaceFileStat, WorkspaceHandleError>
+  readonly listDirectory: (request: {
+    readonly workspaceId: string
+    readonly path?: string | undefined
+  }) => Effect.Effect<ReadonlyArray<WorkspaceFileEntry>, WorkspaceHandleError>
+  readonly makeDirectory: (request: {
+    readonly workspaceId: string
+    readonly path: string
+  }) => Effect.Effect<void, WorkspaceHandleError>
+  readonly removePath: (request: {
+    readonly workspaceId: string
+    readonly path: string
+    readonly recursive?: boolean | undefined
+  }) => Effect.Effect<void, WorkspaceHandleError>
+  readonly startCommand: (request: {
+    readonly workspaceId: string
+    readonly command: string
+    readonly args: ReadonlyArray<string>
+    readonly cwd?: string | undefined
+    readonly env?: Readonly<Record<string, string>> | undefined
+  }) => Effect.Effect<CommandRun, WorkspaceHandleError | CommandStartFailure>
 }
 
 export class WorkspaceManager extends Context.Service<WorkspaceManager, WorkspaceManagerApi>()(
@@ -209,6 +258,7 @@ export const make: Effect.Effect<
   | Git
   | PortAllocator
   | ChildProcessSpawner.ChildProcessSpawner
+  | CommandRuntime
 > = Effect.gen(function* () {
   const provider = yield* WorkspaceProvider
   const registry = yield* WorkspaceRegistry
@@ -218,6 +268,7 @@ export const make: Effect.Effect<
   const git = yield* Git
   const portAllocator = yield* PortAllocator
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+  const commands = yield* CommandRuntime
   const idempotencyRef = yield* Ref.make(new Map<string, IdempotencyRecord>())
 
   const validateProjectRoot: WorkspaceManagerApi["validateProjectRoot"] = (projectRoot) =>
@@ -294,6 +345,237 @@ export const make: Effect.Effect<
         if (Number.isInteger(value) && key.includes("PORT")) ports[key] = value
       }
       return ports
+    })
+
+  const workspaceHandle = (workspaceId: string) =>
+    Effect.gen(function* () {
+      const workspace = yield* registry.getById(workspaceId)
+      if (workspace === undefined) {
+        return yield* WorkspaceHandleNotFound.make({
+          workspaceId,
+          message: `Workspace handle "${workspaceId}" was not found`,
+        })
+      }
+      const found = yield* provider.find(workspace)
+      if (Option.isNone(found) || found.value.rootPath === undefined) {
+        return yield* WorkspaceHandleNotFound.make({
+          workspaceId,
+          message: `Workspace handle "${workspaceId}" is no longer available`,
+        })
+      }
+      return { workspace, handle: found.value, rootPath: found.value.rootPath }
+    })
+
+  const scopedPath = (
+    workspaceId: string,
+    rootPath: string,
+    requestedPath: string,
+    operation: string,
+  ): Effect.Effect<string, WorkspaceFileError> => {
+    const relative = requestedPath.trim() === "" ? "." : requestedPath
+    const absolute = nodePath.resolve(rootPath, relative)
+    const withinRoot = nodePath.relative(rootPath, absolute)
+    if (
+      nodePath.isAbsolute(relative) ||
+      relative.includes("\0") ||
+      withinRoot === ".." ||
+      withinRoot.startsWith(`..${nodePath.sep}`)
+    ) {
+      return WorkspaceFileError.make({
+        workspaceId,
+        path: requestedPath,
+        operation,
+        message: `Path must stay inside the Workspace: "${requestedPath}"`,
+      })
+    }
+    return Effect.succeed(absolute)
+  }
+
+  const fileError = (
+    workspaceId: string,
+    requestedPath: string,
+    operation: string,
+    cause: unknown,
+  ): WorkspaceFileError =>
+    WorkspaceFileError.make({
+      workspaceId,
+      path: requestedPath,
+      operation,
+      message: String(cause),
+    })
+
+  const toFileType = (type: FileSystem.File.Type): WorkspaceFileStat["type"] => {
+    switch (type) {
+      case "File":
+        return "file"
+      case "Directory":
+        return "directory"
+      case "SymbolicLink":
+        return "symlink"
+      default:
+        return "other"
+    }
+  }
+
+  const readFile: WorkspaceManagerApi["readFile"] = (request) =>
+    Effect.gen(function* () {
+      const resolved = yield* workspaceHandle(request.workspaceId)
+      const absolute = yield* scopedPath(
+        request.workspaceId,
+        resolved.rootPath,
+        request.path,
+        "read",
+      )
+      const content = yield* fs
+        .readFileString(absolute)
+        .pipe(
+          Effect.mapError((cause) => fileError(request.workspaceId, request.path, "read", cause)),
+        )
+      return WorkspaceFileContent.make({
+        workspaceId: request.workspaceId,
+        path: request.path,
+        content,
+      })
+    })
+
+  const writeFile: WorkspaceManagerApi["writeFile"] = (request) =>
+    Effect.gen(function* () {
+      const resolved = yield* workspaceHandle(request.workspaceId)
+      const absolute = yield* scopedPath(
+        request.workspaceId,
+        resolved.rootPath,
+        request.path,
+        "write",
+      )
+      yield* fs
+        .writeFileString(absolute, request.content)
+        .pipe(
+          Effect.mapError((cause) => fileError(request.workspaceId, request.path, "write", cause)),
+        )
+    })
+
+  const statFile: WorkspaceManagerApi["statFile"] = (request) =>
+    Effect.gen(function* () {
+      const resolved = yield* workspaceHandle(request.workspaceId)
+      const absolute = yield* scopedPath(
+        request.workspaceId,
+        resolved.rootPath,
+        request.path,
+        "stat",
+      )
+      const info = yield* fs
+        .stat(absolute)
+        .pipe(
+          Effect.mapError((cause) => fileError(request.workspaceId, request.path, "stat", cause)),
+        )
+      return WorkspaceFileStat.make({
+        workspaceId: request.workspaceId,
+        path: request.path,
+        type: toFileType(info.type),
+        size: Number(info.size),
+        mode: info.mode,
+        modifiedAt: Option.isSome(info.mtime) ? info.mtime.value.getTime() : undefined,
+      })
+    })
+
+  const listDirectory: WorkspaceManagerApi["listDirectory"] = (request) =>
+    Effect.gen(function* () {
+      const requestedPath = request.path ?? "."
+      const resolved = yield* workspaceHandle(request.workspaceId)
+      const absolute = yield* scopedPath(
+        request.workspaceId,
+        resolved.rootPath,
+        requestedPath,
+        "list",
+      )
+      const names = yield* fs
+        .readDirectory(absolute)
+        .pipe(
+          Effect.mapError((cause) => fileError(request.workspaceId, requestedPath, "list", cause)),
+        )
+      return yield* Effect.forEach(names.toSorted(), (name) =>
+        Effect.gen(function* () {
+          const entryPath = nodePath.join(requestedPath, name)
+          const entryAbsolute = yield* scopedPath(
+            request.workspaceId,
+            resolved.rootPath,
+            entryPath,
+            "list",
+          )
+          const info = yield* fs
+            .stat(entryAbsolute)
+            .pipe(
+              Effect.mapError((cause) => fileError(request.workspaceId, entryPath, "list", cause)),
+            )
+          return WorkspaceFileEntry.make({
+            path: entryPath === "./" ? name : entryPath,
+            type: toFileType(info.type),
+            size: Number(info.size),
+          })
+        }),
+      )
+    })
+
+  const makeDirectory: WorkspaceManagerApi["makeDirectory"] = (request) =>
+    Effect.gen(function* () {
+      const resolved = yield* workspaceHandle(request.workspaceId)
+      const absolute = yield* scopedPath(
+        request.workspaceId,
+        resolved.rootPath,
+        request.path,
+        "mkdir",
+      )
+      yield* fs
+        .makeDirectory(absolute, { recursive: true })
+        .pipe(
+          Effect.mapError((cause) => fileError(request.workspaceId, request.path, "mkdir", cause)),
+        )
+    })
+
+  const removePath: WorkspaceManagerApi["removePath"] = (request) =>
+    Effect.gen(function* () {
+      if (request.path.trim() === "" || request.path === "." || request.path === "./") {
+        return yield* WorkspaceFileError.make({
+          workspaceId: request.workspaceId,
+          path: request.path,
+          operation: "remove",
+          message: "Removing the Workspace root is not allowed",
+        })
+      }
+      const resolved = yield* workspaceHandle(request.workspaceId)
+      const absolute = yield* scopedPath(
+        request.workspaceId,
+        resolved.rootPath,
+        request.path,
+        "remove",
+      )
+      yield* fs
+        .remove(absolute, { recursive: request.recursive === true, force: false })
+        .pipe(
+          Effect.mapError((cause) => fileError(request.workspaceId, request.path, "remove", cause)),
+        )
+    })
+
+  const startCommand: WorkspaceManagerApi["startCommand"] = (request) =>
+    Effect.gen(function* () {
+      if (request.command.trim().length === 0) {
+        return yield* CommandStartFailure.make({
+          workspaceId: request.workspaceId,
+          message: "Command must be a non-empty string",
+        })
+      }
+      const resolved = yield* workspaceHandle(request.workspaceId)
+      const cwd = request.cwd ?? "."
+      const cwdPath = yield* scopedPath(request.workspaceId, resolved.rootPath, cwd, "command")
+      return yield* commands.start({
+        workspaceId: request.workspaceId,
+        rootPath: resolved.rootPath,
+        command: request.command,
+        args: request.args,
+        cwd,
+        cwdPath,
+        env: request.env,
+      })
     })
 
   const attachProviderFinalizer = (workspace: WorkspaceInfo, handle: ProviderWorkspace) =>
@@ -667,6 +949,7 @@ export const make: Effect.Effect<
         }
         const updatedAt = yield* Clock.currentTimeMillis
         yield* registry.update(markRemoving(workspace, updatedAt))
+        yield* commands.cancelWorkspace(workspace.id)
         yield* runWorkspaceTeardown(workspace)
         yield* registry.release(workspace.id)
         return RemoveWorkspaceResult.make({
@@ -685,6 +968,13 @@ export const make: Effect.Effect<
     listWorkspaces,
     removeWorkspace,
     reconcile,
+    readFile,
+    writeFile,
+    statFile,
+    listDirectory,
+    makeDirectory,
+    removePath,
+    startCommand,
   })
 })
 

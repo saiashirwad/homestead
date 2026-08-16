@@ -4,6 +4,10 @@ import { GitLive } from "../git/service.ts"
 import { PortAllocator } from "../worktree/ports.ts"
 import { layerWithoutDependencies as workspaceManagerLayer } from "./manager.ts"
 import {
+  layerWithoutDependencies as commandRuntimeLayer,
+  type CommandRuntimeOptions,
+} from "./commands.ts"
+import {
   layerWithoutDependencies as workspaceRegistryLayer,
   type WorkspaceRegistryOptions,
 } from "./registry.ts"
@@ -11,6 +15,7 @@ import { layerWithoutDependencies as worktreeProviderLayer } from "./providers/w
 
 export interface WorkspaceLiveOptions {
   readonly registry?: WorkspaceRegistryOptions | undefined
+  readonly commands?: CommandRuntimeOptions | undefined
 }
 
 export const makeWorkspaceManagerLayer = (options: WorkspaceLiveOptions = {}) => {
@@ -22,14 +27,18 @@ export const makeWorkspaceManagerLayer = (options: WorkspaceLiveOptions = {}) =>
   )
   const RegistryLive = workspaceRegistryLayer(options.registry).pipe(Layer.provide(PlatformLive))
   const PortAllocatorLive = PortAllocator.layer
+  const CommandRuntimeLive = commandRuntimeLayer(options.commands)
 
-  return workspaceManagerLayer.pipe(
+  const ManagerLive = workspaceManagerLayer.pipe(
+    Layer.provide(CommandRuntimeLive),
     Layer.provide(ProviderLive),
     Layer.provide(RegistryLive),
     Layer.provide(PortAllocatorLive),
     Layer.provide(GitServiceLive),
     Layer.provide(PlatformLive),
   )
+
+  return Layer.merge(CommandRuntimeLive, ManagerLive)
 }
 
 export const WorkspaceManagerLive = makeWorkspaceManagerLayer()

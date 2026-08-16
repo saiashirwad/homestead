@@ -55,6 +55,9 @@ export interface WorkspaceRegistryApi {
     projectRoot: string,
     name: string,
   ) => Effect.Effect<WorkspaceInfo | undefined, WorkspacePersistenceFailure>
+  readonly getById: (
+    workspaceId: string,
+  ) => Effect.Effect<WorkspaceInfo | undefined, WorkspacePersistenceFailure>
   readonly list: (
     projectRoot?: string,
   ) => Effect.Effect<ReadonlyArray<WorkspaceInfo>, WorkspacePersistenceFailure>
@@ -274,6 +277,11 @@ export const make = (options: WorkspaceRegistryOptions = {}) =>
         Effect.map((workspaces) => workspaces.find((workspace) => workspace.name === name)),
       )
 
+    const getById: WorkspaceRegistryApi["getById"] = (workspaceId) =>
+      list().pipe(
+        Effect.map((workspaces) => workspaces.find((workspace) => workspace.id === workspaceId)),
+      )
+
     const addFinalizer: WorkspaceRegistryApi["addFinalizer"] = (workspaceId, finalizer) =>
       runtimeMutex.withPermit(
         Effect.gen(function* () {
@@ -323,6 +331,7 @@ export const make = (options: WorkspaceRegistryOptions = {}) =>
       register,
       update,
       get,
+      getById,
       list,
       ensureScope,
       addFinalizer,

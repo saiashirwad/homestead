@@ -56,6 +56,56 @@ export class WorkspaceNotFound extends Schema.TaggedError<WorkspaceNotFound>()(
   },
 ) {}
 
+export class WorkspaceHandleNotFound extends Schema.TaggedError<WorkspaceHandleNotFound>()(
+  "WorkspaceHandleNotFound",
+  {
+    workspaceId: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+export class WorkspaceFileError extends Schema.TaggedError<WorkspaceFileError>()(
+  "WorkspaceFileError",
+  {
+    workspaceId: Schema.String,
+    path: Schema.String,
+    operation: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+export class CommandNotFound extends Schema.TaggedError<CommandNotFound>()("CommandNotFound", {
+  workspaceId: Schema.String,
+  runId: Schema.String,
+  message: Schema.String,
+}) {}
+
+export class CommandStartFailure extends Schema.TaggedError<CommandStartFailure>()(
+  "CommandStartFailure",
+  {
+    workspaceId: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+export class CommandInputFailure extends Schema.TaggedError<CommandInputFailure>()(
+  "CommandInputFailure",
+  {
+    workspaceId: Schema.String,
+    runId: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+export class CommandPersistenceFailure extends Schema.TaggedError<CommandPersistenceFailure>()(
+  "CommandPersistenceFailure",
+  {
+    operation: Schema.String,
+    path: Schema.String,
+    detail: Schema.String,
+  },
+) {}
+
 export class WorkspaceRemovalRefused extends Schema.TaggedError<WorkspaceRemovalRefused>()(
   "WorkspaceRemovalRefused",
   {

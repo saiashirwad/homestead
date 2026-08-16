@@ -9,6 +9,7 @@ import { makeAppLayer } from "../runtime.ts"
 export interface MakeServerOptions {
   readonly onReady?: Deferred.Deferred<void>
   readonly registryFilePath?: string | undefined
+  readonly commandFilePath?: string | undefined
 }
 
 export const makeServer = (
@@ -26,6 +27,7 @@ export const makeServer = (
       Layer.provide(
         makeAppLayer({
           registry: { filePath: options?.registryFilePath },
+          commands: { filePath: options?.commandFilePath },
         }),
       ),
       Layer.provide(BunServices.layer),

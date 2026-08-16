@@ -99,6 +99,75 @@ export class RemoveWorkspaceResult extends Schema.Class<RemoveWorkspaceResult>(
   name: Schema.String,
 }) {}
 
+export const WorkspaceFileType = Schema.Literals(["file", "directory", "symlink", "other"])
+export type WorkspaceFileType = typeof WorkspaceFileType.Type
+
+export class WorkspaceFileContent extends Schema.Class<WorkspaceFileContent>(
+  "WorkspaceFileContent",
+)({
+  workspaceId: Schema.String,
+  path: Schema.String,
+  content: Schema.String,
+}) {}
+
+export class WorkspaceFileStat extends Schema.Class<WorkspaceFileStat>("WorkspaceFileStat")({
+  workspaceId: Schema.String,
+  path: Schema.String,
+  type: WorkspaceFileType,
+  size: Schema.Finite,
+  mode: Schema.Finite,
+  modifiedAt: Schema.optional(Schema.Finite),
+}) {}
+
+export class WorkspaceFileEntry extends Schema.Class<WorkspaceFileEntry>("WorkspaceFileEntry")({
+  path: Schema.String,
+  type: WorkspaceFileType,
+  size: Schema.Finite,
+}) {}
+
+export const CommandRunState = Schema.Literals([
+  "running",
+  "exited",
+  "cancelled",
+  "failed",
+  "interrupted",
+])
+export type CommandRunState = typeof CommandRunState.Type
+
+export class CommandRun extends Schema.Class<CommandRun>("CommandRun")({
+  id: Schema.String,
+  workspaceId: Schema.String,
+  command: Schema.String,
+  args: Schema.Array(Schema.String),
+  cwd: Schema.String,
+  pid: Schema.optional(Schema.Finite),
+  state: CommandRunState,
+  startedAt: Schema.Finite,
+  finishedAt: Schema.optional(Schema.Finite),
+  exitCode: Schema.optional(Schema.Finite),
+  signal: Schema.optional(Schema.String),
+}) {}
+
+export const CommandEventType = Schema.Literals([
+  "stdout",
+  "stderr",
+  "started",
+  "exit",
+  "cancelled",
+  "failed",
+  "interrupted",
+])
+export type CommandEventType = typeof CommandEventType.Type
+
+export class CommandEvent extends Schema.Class<CommandEvent>("CommandEvent")({
+  runId: Schema.String,
+  sequence: Schema.Finite,
+  type: CommandEventType,
+  data: Schema.optional(Schema.String),
+  exitCode: Schema.optional(Schema.Finite),
+  signal: Schema.optional(Schema.String),
+}) {}
+
 export class RemoveWorktreeResult extends Schema.Class<RemoveWorktreeResult>(
   "RemoveWorktreeResult",
 )({

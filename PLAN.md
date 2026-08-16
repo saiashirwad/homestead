@@ -263,12 +263,14 @@ The active roadmap builds Homestead itself. Each phase ends in a standalone capa
 
 ### Phase 1: Provider-Neutral Files and Commands
 
-- [ ] Expose scoped filesystem operations without requiring a host path.
-- [ ] Add streaming command start, inspect, list, input, cancellation, and event RPCs.
-- [ ] Give every Command Run a stable identity and bounded output replay.
-- [ ] Keep Command Runs alive across client disconnects while the daemon is running.
-- [ ] Mark unrecoverable active runs interrupted during daemon reconciliation.
-- [ ] Implement `shell`, `exec`, `ps`, `logs`, and `cancel` in the CLI.
+**Status: complete.** Phase 1 is proven through the public Unix-socket protocol and a generic test client:
+
+- [x] Expose scoped filesystem operations without requiring a host path.
+- [x] Add streaming command start, inspect, list, input, cancellation, and event RPCs.
+- [x] Give every Command Run a stable identity and bounded output replay.
+- [x] Keep Command Runs alive across client disconnects while the daemon is running.
+- [x] Mark unrecoverable active runs interrupted during daemon reconciliation.
+- [x] Implement `shell`, `exec`, `ps`, `logs`, and `cancel` in the CLI.
 
 **Exit criterion:** A generic test client can edit files, start a detached command, disconnect, reconnect, replay its output exactly once, observe its exit, and cancel a second command—all through the public protocol.
 
