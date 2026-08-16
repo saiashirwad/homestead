@@ -1,56 +1,52 @@
-import { execFileSync, spawn } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
+import { execFileSync, spawn } from "node:child_process"
+import * as fs from "node:fs"
+import * as os from "node:os"
+import * as path from "node:path"
 
 export interface TempGitRepo {
-  readonly dir: string;
-  readonly cleanup: () => void;
+  readonly dir: string
+  readonly cleanup: () => void
 }
 
 export const createTempGitRepo = (): TempGitRepo => {
-  const dir = fs.realpathSync(
-    fs.mkdtempSync(path.join(os.tmpdir(), "homestead-repo-fixture-")),
-  );
-  execFileSync("git", ["init", "-b", "main"], { cwd: dir, stdio: "ignore" });
-  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir, stdio: "ignore" });
-  execFileSync("git", ["config", "user.name", "Test"], { cwd: dir, stdio: "ignore" });
-  execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: dir, stdio: "ignore" });
-  fs.writeFileSync(path.join(dir, "README.md"), "# test repo\n");
-  execFileSync("git", ["add", "."], { cwd: dir, stdio: "ignore" });
-  execFileSync("git", ["commit", "-m", "initial commit"], { cwd: dir, stdio: "ignore" });
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "homestead-repo-fixture-")))
+  execFileSync("git", ["init", "-b", "main"], { cwd: dir, stdio: "ignore" })
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir, stdio: "ignore" })
+  execFileSync("git", ["config", "user.name", "Test"], { cwd: dir, stdio: "ignore" })
+  execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: dir, stdio: "ignore" })
+  fs.writeFileSync(path.join(dir, "README.md"), "# test repo\n")
+  execFileSync("git", ["add", "."], { cwd: dir, stdio: "ignore" })
+  execFileSync("git", ["commit", "-m", "initial commit"], { cwd: dir, stdio: "ignore" })
 
   return {
     dir,
     cleanup: () => {
       try {
-        fs.rmSync(dir, { recursive: true, force: true });
+        fs.rmSync(dir, { recursive: true, force: true })
       } catch {}
     },
-  };
-};
+  }
+}
 
 export interface TempSocket {
-  readonly dir: string;
-  readonly path: string;
-  readonly cleanup: () => void;
+  readonly dir: string
+  readonly path: string
+  readonly cleanup: () => void
 }
 
 export const createTempSocket = (): TempSocket => {
-  const dir = fs.realpathSync(
-    fs.mkdtempSync(path.join(os.tmpdir(), "homestead-sock-fixture-")),
-  );
-  const sockPath = path.join(dir, "daemon.sock");
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "homestead-sock-fixture-")))
+  const sockPath = path.join(dir, "daemon.sock")
   return {
     dir,
     path: sockPath,
     cleanup: () => {
       try {
-        fs.rmSync(dir, { recursive: true, force: true });
+        fs.rmSync(dir, { recursive: true, force: true })
       } catch {}
     },
-  };
-};
+  }
+}
 
 export const createStaleSocketFile = (sockPath: string): Promise<void> =>
   new Promise((resolve, reject) => {
@@ -64,27 +60,27 @@ export const createStaleSocketFile = (sockPath: string): Promise<void> =>
           setInterval(() => {}, 10000);
         });
       `,
-    ]);
+    ])
 
-    let resolved = false;
+    let resolved = false
 
     child.stdout.on("data", (data) => {
       if (data.toString().includes("READY")) {
-        child.kill("SIGKILL");
+        child.kill("SIGKILL")
       }
-    });
+    })
 
     child.on("exit", () => {
       if (!resolved) {
-        resolved = true;
-        resolve();
+        resolved = true
+        resolve()
       }
-    });
+    })
 
     child.on("error", (err) => {
       if (!resolved) {
-        resolved = true;
-        reject(err);
+        resolved = true
+        reject(err)
       }
-    });
-  });
+    })
+  })

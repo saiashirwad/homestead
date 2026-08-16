@@ -1,103 +1,103 @@
-import { expect, test } from "bun:test";
-import { BunServices } from "@effect/platform-bun";
-import { Effect, Layer } from "effect";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync } from "node:fs";
-import * as os from "node:os";
-import * as nodePath from "node:path";
-import { Git, GitLive } from "../../src/git/service.ts";
+import { expect, test } from "bun:test"
+import { BunServices } from "@effect/platform-bun"
+import { Effect, Layer } from "effect"
+import { execFileSync } from "node:child_process"
+import { mkdtempSync, rmSync } from "node:fs"
+import * as os from "node:os"
+import * as nodePath from "node:path"
+import { Git, GitLive } from "../../src/git/service.ts"
 
-const TestLayer = Layer.provideMerge(GitLive, BunServices.layer);
+const TestLayer = Layer.provideMerge(GitLive, BunServices.layer)
 const run = <A>(eff: Effect.Effect<A, unknown, Git>): Promise<A> =>
-  Effect.runPromise(Effect.provide(eff, TestLayer) as Effect.Effect<A>);
+  Effect.runPromise(Effect.provide(eff, TestLayer) as Effect.Effect<A>)
 
 const sh = (cwd: string, ...args: ReadonlyArray<string>) =>
-  execFileSync("git", args as string[], { cwd, stdio: "pipe" }).toString();
+  execFileSync("git", args as string[], { cwd, stdio: "pipe" }).toString()
 
 const makeRepo = (): string => {
-  const root = mkdtempSync(nodePath.join(os.tmpdir(), "homestead-git-"));
-  sh(root, "init", "-b", "main");
-  sh(root, "config", "user.email", "t@example.com");
-  sh(root, "config", "user.name", "Test");
-  sh(root, "config", "commit.gpgsign", "false");
-  return root;
-};
+  const root = mkdtempSync(nodePath.join(os.tmpdir(), "homestead-git-"))
+  sh(root, "init", "-b", "main")
+  sh(root, "config", "user.email", "t@example.com")
+  sh(root, "config", "user.name", "Test")
+  sh(root, "config", "commit.gpgsign", "false")
+  return root
+}
 
 test("commonDir returns the repo's git dir", async () => {
-  const root = makeRepo();
+  const root = makeRepo()
   try {
-    const dir = await run(Effect.flatMap(Git, (git) => git.commonDir(root)));
+    const dir = await run(Effect.flatMap(Git, (git) => git.commonDir(root)))
     // git may print an absolute path or ".git"; both end in the git dir name.
-    expect(dir.endsWith(".git") || dir === ".git").toBe(true);
+    expect(dir.endsWith(".git") || dir === ".git").toBe(true)
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true })
   }
-});
+})
 
 test("refExists is true for an existing branch ref, false otherwise", async () => {
-  const root = makeRepo();
+  const root = makeRepo()
   try {
-    sh(root, "commit", "--allow-empty", "-m", "init");
-    const has = await run(Effect.flatMap(Git, (git) => git.refExists(root, "refs/heads/main")));
-    const missing = await run(Effect.flatMap(Git, (git) => git.refExists(root, "refs/heads/nope")));
-    expect(has).toBe(true);
-    expect(missing).toBe(false);
+    sh(root, "commit", "--allow-empty", "-m", "init")
+    const has = await run(Effect.flatMap(Git, (git) => git.refExists(root, "refs/heads/main")))
+    const missing = await run(Effect.flatMap(Git, (git) => git.refExists(root, "refs/heads/nope")))
+    expect(has).toBe(true)
+    expect(missing).toBe(false)
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true })
   }
-});
+})
 
 test("merge returns Merged on a clean fast-forwardable branch", async () => {
-  const root = makeRepo();
+  const root = makeRepo()
   try {
-    sh(root, "commit", "--allow-empty", "-m", "base");
-    sh(root, "checkout", "-b", "feature");
-    sh(root, "commit", "--allow-empty", "-m", "work");
-    sh(root, "checkout", "main");
-    const result = await run(Effect.flatMap(Git, (git) => git.merge(root, "feature")));
-    expect(result._tag).toBe("Merged");
+    sh(root, "commit", "--allow-empty", "-m", "base")
+    sh(root, "checkout", "-b", "feature")
+    sh(root, "commit", "--allow-empty", "-m", "work")
+    sh(root, "checkout", "main")
+    const result = await run(Effect.flatMap(Git, (git) => git.merge(root, "feature")))
+    expect(result._tag).toBe("Merged")
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true })
   }
-});
+})
 
 test("symbolicRef returns undefined when the ref is absent", async () => {
-  const root = makeRepo();
+  const root = makeRepo()
   try {
-    sh(root, "commit", "--allow-empty", "-m", "init");
+    sh(root, "commit", "--allow-empty", "-m", "init")
     const origin = await run(
       Effect.flatMap(Git, (git) => git.symbolicRef(root, "refs/remotes/origin/HEAD")),
-    );
-    expect(origin).toBeUndefined();
+    )
+    expect(origin).toBeUndefined()
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true })
   }
-});
+})
 
 test("branch.delete returns true on success and false when branch is gone", async () => {
-  const root = makeRepo();
+  const root = makeRepo()
   try {
-    sh(root, "commit", "--allow-empty", "-m", "init");
-    sh(root, "checkout", "-b", "to-delete");
-    sh(root, "checkout", "main");
+    sh(root, "commit", "--allow-empty", "-m", "init")
+    sh(root, "checkout", "-b", "to-delete")
+    sh(root, "checkout", "main")
     // First delete: branch exists → expect true
-    const first = await run(Effect.flatMap(Git, (git) => git.branch.delete(root, "to-delete")));
-    expect(first).toBe(true);
+    const first = await run(Effect.flatMap(Git, (git) => git.branch.delete(root, "to-delete")))
+    expect(first).toBe(true)
     // Second delete: branch already gone → expect false (tolerant, no crash)
-    const second = await run(Effect.flatMap(Git, (git) => git.branch.delete(root, "to-delete")));
-    expect(second).toBe(false);
+    const second = await run(Effect.flatMap(Git, (git) => git.branch.delete(root, "to-delete")))
+    expect(second).toBe(false)
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true })
   }
-});
+})
 
 test("worktree.list reports the primary checkout", async () => {
-  const root = makeRepo();
+  const root = makeRepo()
   try {
-    sh(root, "commit", "--allow-empty", "-m", "init");
-    const entries = await run(Effect.flatMap(Git, (git) => git.worktree.list(root)));
-    expect(entries.some((e) => e.branch === "main")).toBe(true);
+    sh(root, "commit", "--allow-empty", "-m", "init")
+    const entries = await run(Effect.flatMap(Git, (git) => git.worktree.list(root)))
+    expect(entries.some((e) => e.branch === "main")).toBe(true)
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true })
   }
-});
+})

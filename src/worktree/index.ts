@@ -1,18 +1,13 @@
-import { Console, Effect } from "effect";
-import type { HomesteadConfig } from "../types.ts";
-import {
-  printPlan,
-  resolvePlan,
-  resolveTargetDir,
-  type Target,
-} from "./plan.ts";
-import { ensureServices, printDone, runSetup, writeEnv } from "./provision.ts";
-import { finalizeReservations, PortAllocator } from "./ports.ts";
-import { writeProvisionMarker } from "./marker.ts";
-import type { Repo } from "./repo.ts";
+import { Console, DateTime, Effect } from "effect"
+import type { HomesteadConfig } from "../types.ts"
+import { printPlan, resolvePlan, type Target } from "./plan.ts"
+import { ensureServices, printDone, runSetup, writeEnv } from "./provision.ts"
+import { finalizeReservations, PortAllocator } from "./ports.ts"
+import { writeProvisionMarker } from "./marker.ts"
+import type { Repo } from "./repo.ts"
 
-export { resolveRepo } from "./repo.ts";
-export type { Repo } from "./repo.ts";
+export { resolveRepo } from "./repo.ts"
+export type { Repo } from "./repo.ts"
 
 export const provisionTarget = Effect.fnUntraced(function* (
   config: HomesteadConfig,
@@ -20,42 +15,45 @@ export const provisionTarget = Effect.fnUntraced(function* (
   target: Target,
   options: { readonly dryRun?: boolean; readonly noSetup?: boolean },
 ) {
-  const { semaphore } = yield* PortAllocator;
-  const hasPorts = (config.ports ?? []).length > 0;
+  const { semaphore } = yield* PortAllocator
+  const hasPorts = (config.ports ?? []).length > 0
 
   const region = Effect.gen(function* () {
-    const plan = yield* resolvePlan(repo, target, config);
-    yield* printPlan(plan);
+    const plan = yield* resolvePlan(repo, target, config)
+    yield* printPlan(plan)
     if (options.dryRun === true) {
-      yield* Console.log(`\n(dry run — no changes made)`);
-      return plan;
+      yield* Console.log(`\n(dry run — no changes made)`)
+      return plan
     }
-    yield* writeEnv(plan);
-    return plan;
-  });
+    yield* writeEnv(plan)
+    return plan
+  })
 
   const plan = yield* semaphore.withPermit(
     hasPorts
       ? region.pipe(
-          Effect.ensuring(finalizeReservations(repo.repoName, target.branch, process.pid).pipe(Effect.ignore)),
+          Effect.ensuring(
+            finalizeReservations(repo.repoName, target.branch, process.pid).pipe(Effect.ignore),
+          ),
         )
       : region,
-  );
-  if (options.dryRun === true) return plan;
+  )
+  if (options.dryRun === true) return plan
 
-  yield* ensureServices(repo, config);
+  yield* ensureServices(repo, config)
 
   if (options.noSetup !== true) {
-    yield* runSetup(repo, plan, config);
+    yield* runSetup(repo, plan, config)
   }
 
+  const currentDt = yield* DateTime.now
   yield* writeProvisionMarker(target.targetDir, {
     version: 1,
-    completedAt: new Date().toISOString(),
+    completedAt: DateTime.formatIso(currentDt),
     ports: (config.ports ?? []).map((spec) => spec.key),
     setupSteps: (config.setup ?? []).length,
-  });
+  })
 
-  yield* printDone(plan);
-  return plan;
-});
+  yield* printDone(plan)
+  return plan
+})

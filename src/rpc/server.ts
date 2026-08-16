@@ -1,13 +1,13 @@
-import { BunFileSystem, BunPath, BunSocketServer, BunRuntime, BunServices } from "@effect/platform-bun";
-import { RpcSerialization, RpcServer } from "effect/unstable/rpc";
-import { Console, Deferred, Effect, Layer } from "effect";
-import { makeHomesteadHandlers } from "./handlers.ts";
-import { prepareSocket, registerScopedSocketCleanup } from "./lifecycle.ts";
-import { getDefaultSocketPath, HomesteadRpcs } from "./shared.ts";
-import { WorktreeManagerLive } from "../worktree/manager.ts";
+import { BunSocketServer, BunServices } from "@effect/platform-bun"
+import { RpcSerialization, RpcServer } from "effect/unstable/rpc"
+import { Console, Deferred, Effect, Layer } from "effect"
+import { makeHomesteadHandlers } from "./handlers.ts"
+import { prepareSocket, registerScopedSocketCleanup } from "./lifecycle.ts"
+import { getDefaultSocketPath, HomesteadRpcs } from "./shared.ts"
+import { WorktreeManagerLive } from "../worktree/manager.ts"
 
 export interface MakeServerOptions {
-  readonly onReady?: Deferred.Deferred<void>;
+  readonly onReady?: Deferred.Deferred<void>
 }
 
 export const makeServer = (
@@ -15,35 +15,32 @@ export const makeServer = (
   options?: MakeServerOptions,
 ) =>
   Effect.gen(function* () {
-    const shutdownSignal = yield* Deferred.make<void>();
+    const shutdownSignal = yield* Deferred.make<void>()
 
-    const ownership = yield* prepareSocket(socketPath);
+    const ownership = yield* prepareSocket(socketPath)
 
     const HandlersLive = makeHomesteadHandlers(
       Deferred.succeed(shutdownSignal, void 0).pipe(Effect.asVoid),
-    ).pipe(
-      Layer.provide(WorktreeManagerLive),
-      Layer.provide(BunServices.layer),
-    );
+    ).pipe(Layer.provide(WorktreeManagerLive), Layer.provide(BunServices.layer))
 
     const ServerLive = RpcServer.layer(HomesteadRpcs).pipe(
       Layer.provideMerge(RpcServer.layerProtocolSocketServer),
       Layer.provideMerge(BunSocketServer.layer({ path: socketPath })),
       Layer.provide([HandlersLive, RpcSerialization.layerNdjson]),
-    );
+    )
 
-    yield* Layer.build(ServerLive);
+    yield* Layer.build(ServerLive)
 
-    yield* registerScopedSocketCleanup(socketPath, ownership);
+    yield* registerScopedSocketCleanup(socketPath, ownership)
 
     if (options?.onReady) {
-      yield* Deferred.succeed(options.onReady, void 0);
+      yield* Deferred.succeed(options.onReady, void 0)
     }
-    yield* Console.log(`Homestead RPC Server listening on Unix socket: ${socketPath}`);
+    yield* Console.log(`Homestead RPC Server listening on Unix socket: ${socketPath}`)
 
-    yield* Deferred.await(shutdownSignal);
-    yield* Console.log("Homestead RPC Server shutting down cleanly");
-  });
+    yield* Deferred.await(shutdownSignal)
+    yield* Console.log("Homestead RPC Server shutting down cleanly")
+  })
 
 export const serverLayer = (socketPath: string = getDefaultSocketPath()) =>
-  Layer.effectDiscard(Effect.scoped(makeServer(socketPath)));
+  Layer.effectDiscard(Effect.scoped(makeServer(socketPath)))

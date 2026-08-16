@@ -1,76 +1,76 @@
-import { expect, test } from "bun:test";
-import { Effect } from "effect";
-import { Git } from "../../src/git/service.ts";
-import { GitTest, GitTestHandle } from "../../src/git/test.ts";
-import type { WorktreePorcelainEntry } from "../../src/git/porcelain.ts";
+import { expect, test } from "bun:test"
+import { Effect } from "effect"
+import { Git } from "../../src/git/service.ts"
+import { GitTest, GitTestHandle } from "../../src/git/test.ts"
+import type { WorktreePorcelainEntry } from "../../src/git/porcelain.ts"
 
 test("GitTest stages a merge conflict and journals the abort", async () => {
   await Effect.runPromise(
     Effect.gen(function* () {
-      const handle = yield* GitTestHandle;
-      const git = yield* Git;
-      yield* handle.setMergeResult("/repo", "feature", { _tag: "Conflict", files: ["src/a.ts"] });
+      const handle = yield* GitTestHandle
+      const git = yield* Git
+      yield* handle.setMergeResult("/repo", "feature", { _tag: "Conflict", files: ["src/a.ts"] })
 
-      const result = yield* git.merge("/repo", "feature");
-      yield* git.abortMerge("/repo");
+      const result = yield* git.merge("/repo", "feature")
+      yield* git.abortMerge("/repo")
 
-      expect(result).toEqual({ _tag: "Conflict", files: ["src/a.ts"] });
-      const journal = yield* handle.journal();
-      expect(journal.merges).toEqual([{ cwd: "/repo", branch: "feature" }]);
-      expect(journal.aborts).toEqual(["/repo"]);
+      expect(result).toEqual({ _tag: "Conflict", files: ["src/a.ts"] })
+      const journal = yield* handle.journal()
+      expect(journal.merges).toEqual([{ cwd: "/repo", branch: "feature" }])
+      expect(journal.aborts).toEqual(["/repo"])
     }).pipe(Effect.provide(GitTest)),
-  );
-});
+  )
+})
 
 test("GitTest stages refExists and symbolicRef responses", async () => {
   await Effect.runPromise(
     Effect.gen(function* () {
-      const handle = yield* GitTestHandle;
-      const git = yield* Git;
-      yield* handle.setRefExists("/repo", "refs/heads/main", true);
-      yield* handle.setSymbolicRef("/repo", "refs/remotes/origin/HEAD", "origin/main");
+      const handle = yield* GitTestHandle
+      const git = yield* Git
+      yield* handle.setRefExists("/repo", "refs/heads/main", true)
+      yield* handle.setSymbolicRef("/repo", "refs/remotes/origin/HEAD", "origin/main")
 
-      expect(yield* git.refExists("/repo", "refs/heads/main")).toBe(true);
-      expect(yield* git.refExists("/repo", "refs/heads/other")).toBe(false);
-      expect(yield* git.symbolicRef("/repo", "refs/remotes/origin/HEAD")).toBe("origin/main");
-      expect(yield* git.symbolicRef("/repo", "refs/remotes/origin/HEAD2")).toBeUndefined();
+      expect(yield* git.refExists("/repo", "refs/heads/main")).toBe(true)
+      expect(yield* git.refExists("/repo", "refs/heads/other")).toBe(false)
+      expect(yield* git.symbolicRef("/repo", "refs/remotes/origin/HEAD")).toBe("origin/main")
+      expect(yield* git.symbolicRef("/repo", "refs/remotes/origin/HEAD2")).toBeUndefined()
     }).pipe(Effect.provide(GitTest)),
-  );
-});
+  )
+})
 
 test("GitTest worktree.list/pathForBranch + remove journal", async () => {
   await Effect.runPromise(
     Effect.gen(function* () {
-      const handle = yield* GitTestHandle;
-      const git = yield* Git;
+      const handle = yield* GitTestHandle
+      const git = yield* Git
       const entries: ReadonlyArray<WorktreePorcelainEntry> = [
         { path: "/wt/main", branch: "main" },
         { path: "/wt/feat", branch: "feature" },
-      ];
-      yield* handle.setWorktrees("/repo", entries);
+      ]
+      yield* handle.setWorktrees("/repo", entries)
 
-      expect(yield* git.worktree.pathForBranch("/repo", "feature")).toBe("/wt/feat");
-      yield* git.worktree.remove("/repo", "/wt/feat");
+      expect(yield* git.worktree.pathForBranch("/repo", "feature")).toBe("/wt/feat")
+      yield* git.worktree.remove("/repo", "/wt/feat")
 
-      const journal = yield* handle.journal();
-      expect(journal.worktreeRemoves).toEqual([{ cwd: "/repo", path: "/wt/feat" }]);
+      const journal = yield* handle.journal()
+      expect(journal.worktreeRemoves).toEqual([{ cwd: "/repo", path: "/wt/feat" }])
     }).pipe(Effect.provide(GitTest)),
-  );
-});
+  )
+})
 
 test("GitTest setBranchDeleteResult stages false for branch.delete (still journals)", async () => {
   await Effect.runPromise(
     Effect.gen(function* () {
-      const handle = yield* GitTestHandle;
-      const git = yield* Git;
-      yield* handle.setBranchDeleteResult("/repo", "feat", false);
+      const handle = yield* GitTestHandle
+      const git = yield* Git
+      yield* handle.setBranchDeleteResult("/repo", "feat", false)
 
-      const ok = yield* git.branch.delete("/repo", "feat");
-      expect(ok).toBe(false);
+      const ok = yield* git.branch.delete("/repo", "feat")
+      expect(ok).toBe(false)
 
       // The journal entry is still recorded even when the result is false.
-      const journal = yield* handle.journal();
-      expect(journal.branchDeletes).toEqual([{ cwd: "/repo", name: "feat" }]);
+      const journal = yield* handle.journal()
+      expect(journal.branchDeletes).toEqual([{ cwd: "/repo", name: "feat" }])
     }).pipe(Effect.provide(GitTest)),
-  );
-});
+  )
+})

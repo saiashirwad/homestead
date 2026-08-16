@@ -1,0 +1,4 @@
+{
+  "semi": false,
+  "ignorePatterns": ["node_modules", "bun.lock", ".repos"]
+}

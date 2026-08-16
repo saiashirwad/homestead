@@ -48,7 +48,7 @@ homestead shutdown    # stop the daemon
 ## Config (`homestead.config.ts`)
 
 ```ts
-import type { HomesteadConfig } from "homestead";
+import type { HomesteadConfig } from "homestead"
 
 export default {
   // Ports to allocate per worktree
@@ -83,10 +83,8 @@ export default {
   ],
 
   // Commands run before removing the worktree
-  teardown: [
-    { label: "drop-db", run: ["bun", "run", "db:drop"] },
-  ],
-} satisfies HomesteadConfig;
+  teardown: [{ label: "drop-db", run: ["bun", "run", "db:drop"] }],
+} satisfies HomesteadConfig
 ```
 
 ---
@@ -98,24 +96,25 @@ Homestead runs a typed RPC server (`@effect/rpc`) over a Unix domain socket at `
 You can talk to it from Node/Bun or any language using line-delimited JSON (NDJSON) over the socket:
 
 ```ts
-import { makeClient } from "homestead";
-import { Effect } from "effect";
+import { makeClient } from "homestead"
+import { Effect } from "effect"
 
 const program = Effect.gen(function* () {
-  const client = yield* makeClient();
+  const client = yield* makeClient()
 
   const worktree = yield* client.createWorktree({
     requestId: "task-101",
     repoRoot: process.cwd(),
     name: "fix-nav",
-  });
+  })
 
-  console.log(`Worktree ready at: ${worktree.path}`);
-  console.log(`Allocated ports:`, worktree.ports);
-});
+  console.log(`Worktree ready at: ${worktree.path}`)
+  console.log(`Allocated ports:`, worktree.ports)
+})
 ```
 
 RPC endpoints:
+
 - `v1/daemon/ping`
 - `v1/daemon/shutdown`
 - `v1/worktree/create`

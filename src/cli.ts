@@ -1,23 +1,23 @@
 #!/usr/bin/env bun
-import { BunRuntime } from "@effect/platform-bun";
-import { Console, Effect, Option } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
-import * as crypto from "node:crypto";
-import pkg from "../package.json" with { type: "json" };
-import { initRepo } from "./init.ts";
-import { makeClient } from "./rpc/client.ts";
-import { getDefaultSocketPath } from "./rpc/shared.ts";
-import { makeServer } from "./rpc/server.ts";
-import { resolveRepo } from "./worktree/repo.ts";
-import { WorktreeManager } from "./worktree/manager.ts";
-import { AppLayer } from "./runtime.ts";
+import { BunRuntime } from "@effect/platform-bun"
+import { Console, Effect, Option } from "effect"
+import { Argument, Command, Flag } from "effect/unstable/cli"
+import * as crypto from "node:crypto"
+import pkg from "../package.json" with { type: "json" }
+import { initRepo } from "./init.ts"
+import { makeClient } from "./rpc/client.ts"
+import { getDefaultSocketPath } from "./rpc/shared.ts"
+import { makeServer } from "./rpc/server.ts"
+import { resolveRepo } from "./worktree/repo.ts"
+import { WorktreeManager } from "./worktree/manager.ts"
+import { AppLayer } from "./runtime.ts"
 
 const initCommand = Command.make("init", {}, () =>
   Effect.gen(function* () {
-    const repo = yield* resolveRepo();
-    yield* initRepo(repo.primaryRoot);
+    const repo = yield* resolveRepo()
+    yield* initRepo(repo.primaryRoot)
   }),
-).pipe(Command.withDescription("one-time: scaffold a starter homestead.config.ts"));
+).pipe(Command.withDescription("one-time: scaffold a starter homestead.config.ts"))
 
 const pingCommand = Command.make(
   "ping",
@@ -28,12 +28,12 @@ const pingCommand = Command.make(
   },
   ({ socket }) =>
     Effect.gen(function* () {
-      const socketPath = Option.getOrElse(socket, getDefaultSocketPath);
-      const client = yield* makeClient(socketPath);
-      const res = yield* client.ping();
-      yield* Console.log(`✓ Daemon is alive (timestamp: ${res.timestamp})`);
+      const socketPath = Option.getOrElse(socket, getDefaultSocketPath)
+      const client = yield* makeClient(socketPath)
+      const res = yield* client.ping()
+      yield* Console.log(`✓ Daemon is alive (timestamp: ${res.timestamp})`)
     }),
-).pipe(Command.withDescription("check if the Homestead daemon is running"));
+).pipe(Command.withDescription("check if the Homestead daemon is running"))
 
 const shutdownCommand = Command.make(
   "shutdown",
@@ -44,12 +44,12 @@ const shutdownCommand = Command.make(
   },
   ({ socket }) =>
     Effect.gen(function* () {
-      const socketPath = Option.getOrElse(socket, getDefaultSocketPath);
-      const client = yield* makeClient(socketPath);
-      yield* client.shutdown();
-      yield* Console.log("✓ Daemon shut down successfully");
+      const socketPath = Option.getOrElse(socket, getDefaultSocketPath)
+      const client = yield* makeClient(socketPath)
+      yield* client.shutdown()
+      yield* Console.log("✓ Daemon shut down successfully")
     }),
-).pipe(Command.withDescription("stop the running Homestead daemon"));
+).pipe(Command.withDescription("stop the running Homestead daemon"))
 
 const serverCommand = Command.make(
   "server",
@@ -60,10 +60,10 @@ const serverCommand = Command.make(
   },
   ({ socket }) =>
     Effect.gen(function* () {
-      const socketPath = Option.getOrElse(socket, getDefaultSocketPath);
-      yield* Effect.scoped(makeServer(socketPath));
+      const socketPath = Option.getOrElse(socket, getDefaultSocketPath)
+      yield* Effect.scoped(makeServer(socketPath))
     }),
-).pipe(Command.withDescription("run the Homestead RPC daemon over Unix Domain Socket"));
+).pipe(Command.withDescription("run the Homestead RPC daemon over Unix Domain Socket"))
 
 const createCommand = Command.make(
   "create",
@@ -78,24 +78,27 @@ const createCommand = Command.make(
   },
   ({ name, from, repo }) =>
     Effect.gen(function* () {
-      const repoRoot = Option.getOrElse(repo, () => process.cwd());
-      const manager = yield* WorktreeManager;
-      const canonicalRepo = yield* manager.validateRepoRoot(repoRoot);
+      const repoRoot = Option.getOrElse(repo, () => process.cwd())
+      const manager = yield* WorktreeManager
+      const canonicalRepo = yield* manager.validateRepoRoot(repoRoot)
 
       const info = yield* manager.createWorktree({
         requestId: crypto.randomUUID(),
         repoRoot: canonicalRepo,
         name,
         from: Option.getOrUndefined(from),
-      });
+      })
 
-      const portKeys = Object.keys(info.ports);
-      const portsStr = portKeys.length > 0
-        ? ` (ports: ${portKeys.map((k) => `${k}=${info.ports[k]}`).join(", ")})`
-        : "";
-      yield* Console.log(`\n✅ Worktree "${info.name}" ready at ${info.path}${portsStr}`);
+      const portKeys = Object.keys(info.ports)
+      const portsStr =
+        portKeys.length > 0
+          ? ` (ports: ${portKeys.map((k) => `${k}=${info.ports[k]}`).join(", ")})`
+          : ""
+      yield* Console.log(`\n✅ Worktree "${info.name}" ready at ${info.path}${portsStr}`)
     }),
-).pipe(Command.withDescription("provision an isolated worktree with allocated ports and derived .env"));
+).pipe(
+  Command.withDescription("provision an isolated worktree with allocated ports and derived .env"),
+)
 
 const listCommand = Command.make(
   "list",
@@ -106,61 +109,74 @@ const listCommand = Command.make(
   },
   ({ repo }) =>
     Effect.gen(function* () {
-      const repoRoot = Option.getOrElse(repo, () => process.cwd());
-      const manager = yield* WorktreeManager;
-      const canonicalRepo = yield* manager.validateRepoRoot(repoRoot);
-      const worktrees = yield* manager.listWorktrees({ repoRoot: canonicalRepo });
+      const repoRoot = Option.getOrElse(repo, () => process.cwd())
+      const manager = yield* WorktreeManager
+      const canonicalRepo = yield* manager.validateRepoRoot(repoRoot)
+      const worktrees = yield* manager.listWorktrees({ repoRoot: canonicalRepo })
 
       if (worktrees.length === 0) {
-        yield* Console.log("No worktrees found.");
-        return;
+        yield* Console.log("No worktrees found.")
+        return
       }
 
-      yield* Console.log("\nNAME                 BRANCH               PORTS                        PATH");
-      yield* Console.log("-------------------- -------------------- ---------------------------- ----------------------------------------");
+      yield* Console.log(
+        "\nNAME                 BRANCH               PORTS                        PATH",
+      )
+      yield* Console.log(
+        "-------------------- -------------------- ---------------------------- ----------------------------------------",
+      )
       for (const wt of worktrees) {
-        const portsStr = Object.entries(wt.ports)
-          .map(([k, v]) => `${k}=${v}`)
-          .join(" ") || "—";
-        const namePad = wt.name.padEnd(20).slice(0, 20);
-        const branchPad = wt.branch.padEnd(20).slice(0, 20);
-        const portsPad = portsStr.padEnd(28).slice(0, 28);
-        yield* Console.log(`${namePad} ${branchPad} ${portsPad} ${wt.path}`);
+        const portsStr =
+          Object.entries(wt.ports)
+            .map(([k, v]) => `${k}=${v}`)
+            .join(" ") || "—"
+        const namePad = wt.name.padEnd(20).slice(0, 20)
+        const branchPad = wt.branch.padEnd(20).slice(0, 20)
+        const portsPad = portsStr.padEnd(28).slice(0, 28)
+        yield* Console.log(`${namePad} ${branchPad} ${portsPad} ${wt.path}`)
       }
-      yield* Console.log("");
+      yield* Console.log("")
     }),
-).pipe(Command.withDescription("list active worktrees in the repository"));
+).pipe(Command.withDescription("list active worktrees in the repository"))
 
-const lsCommand = Command.make("ls", {
-  repo: Flag.optional(Flag.string("repo")).pipe(
-    Flag.withDescription("repository root (default: current working directory repo)"),
-  ),
-}, ({ repo }) =>
-  Effect.gen(function* () {
-    const repoRoot = Option.getOrElse(repo, () => process.cwd());
-    const manager = yield* WorktreeManager;
-    const canonicalRepo = yield* manager.validateRepoRoot(repoRoot);
-    const worktrees = yield* manager.listWorktrees({ repoRoot: canonicalRepo });
+const lsCommand = Command.make(
+  "ls",
+  {
+    repo: Flag.optional(Flag.string("repo")).pipe(
+      Flag.withDescription("repository root (default: current working directory repo)"),
+    ),
+  },
+  ({ repo }) =>
+    Effect.gen(function* () {
+      const repoRoot = Option.getOrElse(repo, () => process.cwd())
+      const manager = yield* WorktreeManager
+      const canonicalRepo = yield* manager.validateRepoRoot(repoRoot)
+      const worktrees = yield* manager.listWorktrees({ repoRoot: canonicalRepo })
 
-    if (worktrees.length === 0) {
-      yield* Console.log("No worktrees found.");
-      return;
-    }
+      if (worktrees.length === 0) {
+        yield* Console.log("No worktrees found.")
+        return
+      }
 
-    yield* Console.log("\nNAME                 BRANCH               PORTS                        PATH");
-    yield* Console.log("-------------------- -------------------- ---------------------------- ----------------------------------------");
-    for (const wt of worktrees) {
-      const portsStr = Object.entries(wt.ports)
-        .map(([k, v]) => `${k}=${v}`)
-        .join(" ") || "—";
-      const namePad = wt.name.padEnd(20).slice(0, 20);
-      const branchPad = wt.branch.padEnd(20).slice(0, 20);
-      const portsPad = portsStr.padEnd(28).slice(0, 28);
-      yield* Console.log(`${namePad} ${branchPad} ${portsPad} ${wt.path}`);
-    }
-    yield* Console.log("");
-  }),
-).pipe(Command.withDescription("alias for `list`"));
+      yield* Console.log(
+        "\nNAME                 BRANCH               PORTS                        PATH",
+      )
+      yield* Console.log(
+        "-------------------- -------------------- ---------------------------- ----------------------------------------",
+      )
+      for (const wt of worktrees) {
+        const portsStr =
+          Object.entries(wt.ports)
+            .map(([k, v]) => `${k}=${v}`)
+            .join(" ") || "—"
+        const namePad = wt.name.padEnd(20).slice(0, 20)
+        const branchPad = wt.branch.padEnd(20).slice(0, 20)
+        const portsPad = portsStr.padEnd(28).slice(0, 28)
+        yield* Console.log(`${namePad} ${branchPad} ${portsPad} ${wt.path}`)
+      }
+      yield* Console.log("")
+    }),
+).pipe(Command.withDescription("alias for `list`"))
 
 const rmCommand = Command.make(
   "rm",
@@ -175,20 +191,20 @@ const rmCommand = Command.make(
   },
   ({ name, repo, force }) =>
     Effect.gen(function* () {
-      const repoRoot = Option.getOrElse(repo, () => process.cwd());
-      const manager = yield* WorktreeManager;
-      const canonicalRepo = yield* manager.validateRepoRoot(repoRoot);
+      const repoRoot = Option.getOrElse(repo, () => process.cwd())
+      const manager = yield* WorktreeManager
+      const canonicalRepo = yield* manager.validateRepoRoot(repoRoot)
 
       yield* manager.removeWorktree({
         requestId: crypto.randomUUID(),
         repoRoot: canonicalRepo,
         name,
         force,
-      });
+      })
 
-      yield* Console.log(`\n✅ Worktree "${name}" removed successfully`);
+      yield* Console.log(`\n✅ Worktree "${name}" removed successfully`)
     }),
-).pipe(Command.withDescription("remove a worktree and clean up its resources"));
+).pipe(Command.withDescription("remove a worktree and clean up its resources"))
 
 const homestead = Command.make("homestead", {}).pipe(
   Command.withDescription("deterministic git-worktree isolation with port allocation & RPC daemon"),
@@ -202,10 +218,8 @@ const homestead = Command.make("homestead", {}).pipe(
     pingCommand,
     shutdownCommand,
   ]),
-);
+)
 
-const program = Command.run(homestead, { version: pkg.version }).pipe(
-  Effect.provide(AppLayer),
-);
+const program = Command.run(homestead, { version: pkg.version }).pipe(Effect.provide(AppLayer))
 
-BunRuntime.runMain(program);
+BunRuntime.runMain(program)

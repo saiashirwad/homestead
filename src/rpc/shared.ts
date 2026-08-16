@@ -1,9 +1,9 @@
-import { Rpc, RpcClient, RpcGroup } from "effect/unstable/rpc";
-import type { Rpcs } from "effect/unstable/rpc/RpcGroup";
-import type { RpcClientError } from "effect/unstable/rpc/RpcClientError";
-import { Effect, Schema } from "effect";
-import * as os from "node:os";
-import * as path from "node:path";
+import { Rpc, RpcClient, RpcGroup } from "effect/unstable/rpc"
+import type { Rpcs } from "effect/unstable/rpc/RpcGroup"
+import type { RpcClientError } from "effect/unstable/rpc/RpcClientError"
+import { Effect, Schema } from "effect"
+import * as os from "node:os"
+import * as path from "node:path"
 import {
   InvalidInput,
   ProvisionFailure,
@@ -12,18 +12,18 @@ import {
   WorktreeAlreadyExists,
   WorktreeNotFound,
   WorktreeRemovalRefused,
-} from "../errors.ts";
-import { RemoveWorktreeResult, WorktreeInfo } from "../types.ts";
+} from "../errors.ts"
+import { RemoveWorktreeResult, WorktreeInfo } from "../types.ts"
 
 export const getDefaultSocketPath = (): string => {
   if (process.env.HOMESTEAD_SOCKET_PATH) {
-    return process.env.HOMESTEAD_SOCKET_PATH;
+    return process.env.HOMESTEAD_SOCKET_PATH
   }
-  return path.join(os.homedir(), ".homestead", "run", "daemon.sock");
-};
+  return path.join(os.homedir(), ".homestead", "run", "daemon.sock")
+}
 
 export class Ping extends Rpc.make("v1/daemon/ping", {
-  success: Schema.Struct({ timestamp: Schema.Number }),
+  success: Schema.Struct({ timestamp: Schema.Finite }),
 }) {}
 
 export class Shutdown extends Rpc.make("v1/daemon/shutdown", {
@@ -79,20 +79,20 @@ export const HomesteadRpcs = RpcGroup.make(
   CreateWorktree,
   ListWorktrees,
   RemoveWorktree,
-);
+)
 
-export type HomesteadRpcList = Rpcs<typeof HomesteadRpcs>;
+export type HomesteadRpcList = Rpcs<typeof HomesteadRpcs>
 
 export interface HomesteadClient {
-  readonly ping: () => Effect.Effect<{ timestamp: number }, RpcClientError>;
-  readonly Ping: () => Effect.Effect<{ timestamp: number }, RpcClientError>;
-  readonly shutdown: () => Effect.Effect<void, RpcClientError>;
-  readonly Shutdown: () => Effect.Effect<void, RpcClientError>;
+  readonly ping: () => Effect.Effect<{ timestamp: number }, RpcClientError>
+  readonly Ping: () => Effect.Effect<{ timestamp: number }, RpcClientError>
+  readonly shutdown: () => Effect.Effect<void, RpcClientError>
+  readonly Shutdown: () => Effect.Effect<void, RpcClientError>
   readonly createWorktree: (payload: {
-    readonly requestId: string;
-    readonly repoRoot: string;
-    readonly name: string;
-    readonly from?: string | undefined;
+    readonly requestId: string
+    readonly repoRoot: string
+    readonly name: string
+    readonly from?: string | undefined
   }) => Effect.Effect<
     WorktreeInfo,
     | InvalidInput
@@ -101,12 +101,12 @@ export interface HomesteadClient {
     | RequestIdConflict
     | ProvisionFailure
     | RpcClientError
-  >;
+  >
   readonly CreateWorktree: (payload: {
-    readonly requestId: string;
-    readonly repoRoot: string;
-    readonly name: string;
-    readonly from?: string | undefined;
+    readonly requestId: string
+    readonly repoRoot: string
+    readonly name: string
+    readonly from?: string | undefined
   }) => Effect.Effect<
     WorktreeInfo,
     | InvalidInput
@@ -115,24 +115,24 @@ export interface HomesteadClient {
     | RequestIdConflict
     | ProvisionFailure
     | RpcClientError
-  >;
+  >
   readonly listWorktrees: (payload?: {
-    readonly repoRoot?: string | undefined;
+    readonly repoRoot?: string | undefined
   }) => Effect.Effect<
     ReadonlyArray<WorktreeInfo>,
     InvalidInput | RepositoryNotFound | RpcClientError
-  >;
+  >
   readonly ListWorktrees: (payload?: {
-    readonly repoRoot?: string | undefined;
+    readonly repoRoot?: string | undefined
   }) => Effect.Effect<
     ReadonlyArray<WorktreeInfo>,
     InvalidInput | RepositoryNotFound | RpcClientError
-  >;
+  >
   readonly removeWorktree: (payload: {
-    readonly requestId: string;
-    readonly repoRoot: string;
-    readonly name: string;
-    readonly force?: boolean | undefined;
+    readonly requestId: string
+    readonly repoRoot: string
+    readonly name: string
+    readonly force?: boolean | undefined
   }) => Effect.Effect<
     RemoveWorktreeResult,
     | InvalidInput
@@ -142,12 +142,12 @@ export interface HomesteadClient {
     | RequestIdConflict
     | ProvisionFailure
     | RpcClientError
-  >;
+  >
   readonly RemoveWorktree: (payload: {
-    readonly requestId: string;
-    readonly repoRoot: string;
-    readonly name: string;
-    readonly force?: boolean | undefined;
+    readonly requestId: string
+    readonly repoRoot: string
+    readonly name: string
+    readonly force?: boolean | undefined
   }) => Effect.Effect<
     RemoveWorktreeResult,
     | InvalidInput
@@ -157,12 +157,12 @@ export interface HomesteadClient {
     | RequestIdConflict
     | ProvisionFailure
     | RpcClientError
-  >;
-  readonly raw: RpcClient.RpcClient<HomesteadRpcList, RpcClientError>;
+  >
+  readonly raw: RpcClient.RpcClient<HomesteadRpcList, RpcClientError>
 }
 
 export const makeHomesteadClient = Effect.gen(function* () {
-  const raw = yield* RpcClient.make(HomesteadRpcs);
+  const raw = yield* RpcClient.make(HomesteadRpcs)
 
   const client: HomesteadClient = {
     raw,
@@ -176,7 +176,7 @@ export const makeHomesteadClient = Effect.gen(function* () {
     ListWorktrees: (payload) => raw["v1/worktree/list"](payload ?? {}),
     removeWorktree: (payload) => raw["v1/worktree/remove"](payload),
     RemoveWorktree: (payload) => raw["v1/worktree/remove"](payload),
-  };
+  }
 
-  return client;
-});
+  return client
+})

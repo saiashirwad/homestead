@@ -1,14 +1,14 @@
-import type { HomesteadConfig } from "homestead";
+import type { HomesteadConfig } from "homestead"
 
 const withDbName = (raw: string, dbName: string): string => {
-  const queryIndex = raw.indexOf("?");
-  const base = queryIndex === -1 ? raw : raw.slice(0, queryIndex);
-  const query = queryIndex === -1 ? "" : raw.slice(queryIndex);
-  const slash = base.lastIndexOf("/");
-  return `${base.slice(0, slash + 1)}${dbName}${query}`;
-};
+  const queryIndex = raw.indexOf("?")
+  const base = queryIndex === -1 ? raw : raw.slice(0, queryIndex)
+  const query = queryIndex === -1 ? "" : raw.slice(queryIndex)
+  const slash = base.lastIndexOf("/")
+  return `${base.slice(0, slash + 1)}${dbName}${query}`
+}
 
-const DEFAULT_DB_URL = "postgres://postgres:postgres@localhost:5432/myapp";
+const DEFAULT_DB_URL = "postgres://postgres:postgres@localhost:5432/myapp"
 
 export default {
   // Where new worktrees land (default: ~/worktrees/<repo>/<slug>).
@@ -45,7 +45,5 @@ export default {
   ],
 
   // Teardown commands executed before removing the worktree
-  teardown: [
-    { label: "db:drop", run: ["bun", "run", "db:drop"] },
-  ],
-} satisfies HomesteadConfig;
+  teardown: [{ label: "db:drop", run: ["bun", "run", "db:drop"] }],
+} satisfies HomesteadConfig
