@@ -1,163 +1,70 @@
-import type { Effect } from "effect";
-import type { FileSystem, Path } from "effect";
-import type { ChildProcessSpawner } from "effect/unstable/process";
-import type { HomesteadEvent } from "./events.ts";
-import type { Herdr } from "./herdr/service.ts";
-import type {
-  AgentConfigData,
-  EnvConfigData,
-  IssuesConfigData,
-  PortSpec as PortSpecData,
-  PrConfigData,
-  ServiceSpec,
-  SetupStep,
-} from "./config-schema.ts";
-import type { PrView } from "./pr/resolve.ts";
-import type { WorkItem } from "./work-item.ts";
-import type { HomesteadContext } from "./context.ts";
+import { Schema } from "effect";
 
-export type {
-  AgentConfigData,
-  EnvConfigData,
-  IssuesConfigData,
-  PrConfigData,
-  ServiceSpec,
-  SetupStep,
-} from "./config-schema.ts";
-
-export interface PortSpec extends Omit<PortSpecData, "base"> {
-  readonly base: number | ((ctx: HomesteadContext) => number);
+export interface PortSpec {
+  readonly key: string;
+  readonly base: number;
 }
 
-export type { WorkItem } from "./work-item.ts";
-export type { HomesteadContext } from "./context.ts";
-export type { HomesteadEvent } from "./events.ts";
+export interface ServiceSpec {
+  readonly name: string;
+  readonly host: string;
+  readonly port: number;
+  readonly start?: ReadonlyArray<string> | undefined;
+  readonly timeoutMs?: number | undefined;
+}
 
-export type HomesteadServices =
-  | FileSystem.FileSystem
-  | Path.Path
-  | ChildProcessSpawner.ChildProcessSpawner
-  | Herdr;
+export interface SetupStep {
+  readonly label: string;
+  readonly run: ReadonlyArray<string>;
+  readonly cwd?: string | undefined;
+  readonly injectEnv?: ReadonlyArray<string> | undefined;
+  readonly fatal?: boolean | undefined;
+}
 
-export type WorktreeContext = HomesteadContext & {
-  readonly targetDir: string;
+export interface TeardownStep {
+  readonly label: string;
+  readonly run: ReadonlyArray<string>;
+  readonly cwd?: string | undefined;
+}
+
+export interface WorktreeContext {
+  readonly repoName: string;
+  readonly slug: string;
+  readonly branch: string;
+  readonly worktreeDir: string;
   readonly primaryRoot: string;
-};
+  readonly env: (key: string) => string | undefined;
+}
 
-export interface EnvConfig extends EnvConfigData {
+export interface EnvConfig {
+  readonly source?: string | undefined;
+  readonly fallback?: string | undefined;
   readonly derive?: ((ctx: WorktreeContext) => Record<string, string>) | undefined;
 }
 
-export type AgentPromptContext = HomesteadContext & {
-  readonly item: WorkItem;
-  readonly args: ReadonlyArray<string>;
-};
-
-// Discriminated by `kind`: the issue surface always carries `item`, the PR
-// surface always carries `pr`, the agent surface (issue-free `agent spawn`)
-// carries neither — its identity is `slug`, which every `HomesteadContext`
-// already has. Modeling it as a union lets callbacks narrow on `kind` instead
-// of asserting presence with `!`.
-export type SurfaceCtx =
-  | (HomesteadContext & { readonly kind: "issue"; readonly item: WorkItem })
-  | (HomesteadContext & { readonly kind: "pr"; readonly pr: PrView })
-  | (HomesteadContext & { readonly kind: "agent" });
-
-export interface AgentConfig extends Omit<AgentConfigData, "command"> {
-  readonly command?:
-    | ReadonlyArray<string>
-    | ((ctx: HomesteadContext & { args: ReadonlyArray<string> }) => ReadonlyArray<string>)
-    | undefined;
-  readonly prompt?: ((ctx: AgentPromptContext) => string) | undefined;
-  readonly surfaceLabel?: ((ctx: SurfaceCtx) => string) | undefined;
-}
-
-export type TrackingContext = HomesteadContext & {
-  readonly host: string;
-};
-
-export interface IssuesConfig extends Omit<IssuesConfigData, "comment" | "labelColor" | "label" | "reviewLabel" | "assign"> {
-  readonly label?: string | ((item: WorkItem) => string) | undefined;
-  readonly reviewLabel?: string | ((item: WorkItem) => string) | undefined;
-  readonly assign?: boolean | string | ((item: WorkItem) => string | ReadonlyArray<string>) | undefined;
-  readonly branch?: ((item: WorkItem) => string) | undefined;
-  readonly comment?: boolean | ((ctx: TrackingContext) => string);
-  readonly stopComment?: boolean | ((ctx: TrackingContext) => string);
-  readonly reviewComment?: boolean | ((ctx: TrackingContext) => string);
-  readonly closeComment?: boolean | ((ctx: TrackingContext) => string);
-  readonly closeReason?:
-    | "completed"
-    | "not planned"
-    | ((ctx: HomesteadContext) => "completed" | "not planned")
-    | undefined;
-  readonly labelColor?: string | ((ctx: { label: string; kind: "wip" | "review" }) => string) | undefined;
-}
-
-export interface PrPromptContext {
-  readonly pr: PrView;
-  readonly checks?: string | undefined;
-}
-
-export interface PrConfig extends Omit<PrConfigData, "checks"> {
-  readonly checks?: string | ((ctx: PrPromptContext) => string) | undefined;
-  readonly reviewPrompt?: ((ctx: PrPromptContext) => string) | undefined;
-  readonly workPrompt?: ((ctx: PrPromptContext) => string) | undefined;
-  readonly prBranch?: ((ctx: { pr: PrView; kind: "fork" | "same-repo" }) => string) | undefined;
-}
-
-// `homestead land <branch>` — merge into the default branch, regenerate
-// generated artifacts, run `verify`, keep the merge only on green.
-export interface LandConfig {
-  /** Gate command; the merge is kept only if it exits 0. Default: `bun run check`. */
-  readonly verify?: ReadonlyArray<string> | undefined;
-  /** Regenerate-generated-artifacts commands, run in order before verify. Default: `bun run gen:config-types`; [] to opt out. */
-  readonly regen?: ReadonlyArray<ReadonlyArray<string>> | undefined;
-  /** Repo-relative paths/globs treated as regenerate-not-merge. Default: ["src/generated/**"]. */
-  readonly generated?: ReadonlyArray<string> | undefined;
-}
-
 export interface HomesteadConfig {
-  /** `ctx.worktreeDir` is always empty inside this callback — the path is what you're defining. */
-  readonly worktreeDir?: ((ctx: HomesteadContext) => string) | undefined;
-  readonly ports?: ReadonlyArray<PortSpec>;
-  readonly env?: EnvConfig;
-  readonly services?: ReadonlyArray<ServiceSpec>;
-  readonly setup?:
-    | ReadonlyArray<SetupStep>
-    | ((ctx: HomesteadContext & { plan: Plan }) => ReadonlyArray<SetupStep>)
-    | undefined;
-  readonly agent?: AgentConfig;
-  readonly issues?: IssuesConfig;
-  readonly pr?: PrConfig;
-  readonly land?: LandConfig;
-  // Lifecycle hooks return `unknown` — an Effect, a Promise (plain `async`, no
-  // `effect` import), or nothing. homestead normalizes the result (see
-  // normalizeHookResult in hooks.ts). The generated config types mirror this.
-  readonly afterSetup?: ((ctx: WorktreeContext & { readonly plan: Plan }) => unknown) | undefined;
-  readonly afterLaunch?: ((ctx: HomesteadContext & { readonly paneId: string }) => unknown) | undefined;
-  readonly beforeTeardown?:
-    | ((
-        ctx: HomesteadContext & {
-          readonly verb: "kill" | "close" | "complete";
-          readonly tracked: boolean;
-          // Present only for machine-spawned ("auto-work") branches: who/what spawned it.
-          readonly spawnedBy?: string;
-        },
-      ) => unknown)
-    | undefined;
-  readonly afterTeardown?:
-    | ((ctx: HomesteadContext & { readonly verb: "kill" | "close" | "complete"; readonly reviewLabel?: string }) => unknown)
-    | undefined;
-  readonly onEvent?: ((e: HomesteadEvent) => unknown) | undefined;
+  readonly worktreeDir?: ((ctx: { repoName: string; slug: string; branch: string }) => string) | undefined;
+  readonly ports?: ReadonlyArray<PortSpec> | undefined;
+  readonly env?: EnvConfig | undefined;
+  readonly services?: ReadonlyArray<ServiceSpec> | undefined;
+  readonly setup?: ReadonlyArray<SetupStep> | undefined;
+  readonly teardown?: ReadonlyArray<TeardownStep> | undefined;
 }
 
-export interface WorktreeOptions {
-  readonly create?: string;
-  readonly from?: string;
-  readonly dir?: string;
-  readonly noSetup?: boolean;
-  readonly dryRun?: boolean;
-}
+export class WorktreeInfo extends Schema.Class<WorktreeInfo>("WorktreeInfo")({
+  repoRoot: Schema.String,
+  name: Schema.String,
+  branch: Schema.String,
+  path: Schema.String,
+  ports: Schema.Record(Schema.String, Schema.Number),
+  createdAt: Schema.Number,
+}) {}
+
+export class RemoveWorktreeResult extends Schema.Class<RemoveWorktreeResult>("RemoveWorktreeResult")({
+  removed: Schema.Boolean,
+  repoRoot: Schema.String,
+  name: Schema.String,
+}) {}
 
 export interface Plan {
   readonly targetDir: string;

@@ -1,11 +1,13 @@
-import { Cause, Effect, Exit, FileSystem, Option, Path, Schema } from "effect";
+import { Cause, Effect, Exit, FileSystem, Option, Path } from "effect";
 import { pathToFileURL } from "node:url";
-import { ConfigDataSchema } from "./config-schema.ts";
-import { toConfigData } from "./config-strip.ts";
 import { ConfigInvalid, ConfigNotFound } from "./errors.ts";
 import type { HomesteadConfig } from "./types.ts";
 
-const CONFIG_BASENAMES = ["homestead.config.ts", "homestead.config.js", "homestead.config.mjs"] as const;
+const CONFIG_BASENAMES = [
+  "homestead.config.ts",
+  "homestead.config.js",
+  "homestead.config.mjs",
+] as const;
 
 const isConfigObject = (value: unknown): value is HomesteadConfig =>
   typeof value === "object" && value !== null;
@@ -15,33 +17,15 @@ const defaultExport = (mod: unknown): HomesteadConfig | undefined => {
   return isConfigObject(mod.default) ? mod.default : undefined;
 };
 
-const applyDefaults = (config: HomesteadConfig): HomesteadConfig => ({
+export const applyDefaults = (config: HomesteadConfig): HomesteadConfig => ({
   ...config,
   ports: config.ports ?? [],
   services: config.services ?? [],
   setup: config.setup ?? [],
+  teardown: config.teardown ?? [],
 });
 
-export const validateConfigShape = (config: HomesteadConfig): HomesteadConfig => {
-  // Decode purely for its validation side-effect (throws on invalid input).
-  Schema.decodeUnknownSync(ConfigDataSchema)(toConfigData(config));
-  return applyDefaults(config);
-};
-
-const decodeConfigData = Schema.decodeUnknownEffect(ConfigDataSchema);
-
-const validateConfigData = Effect.fn("homestead/validate-config")(function* (config: HomesteadConfig) {
-  // Decode purely for validation; discard the result and keep the original config.
-  yield* decodeConfigData(toConfigData(config)).pipe(
-    Effect.catchTag(
-      "SchemaError",
-      (error) => new ConfigInvalid({ path: "homestead.config", reason: error.message }),
-    ),
-  );
-  return applyDefaults(config);
-});
-
-export const loadConfigOrUndefined = Effect.fn("homestead/load-config-or-undefined")(function* (startDir: string) {
+export const loadConfigOrUndefined = Effect.fnUntraced(function* (startDir: string) {
   const exit = yield* Effect.exit(loadConfig(startDir));
   if (Exit.isSuccess(exit)) return exit.value;
   const error = Cause.findErrorOption(exit.cause);
@@ -49,7 +33,7 @@ export const loadConfigOrUndefined = Effect.fn("homestead/load-config-or-undefin
   return yield* Effect.failCause(exit.cause);
 });
 
-export const loadConfig = Effect.fn("homestead/load-config")(function* (startDir: string) {
+export const loadConfig = Effect.fnUntraced(function* (startDir: string) {
   const fs = yield* FileSystem.FileSystem;
   const path = yield* Path.Path;
 
@@ -70,7 +54,7 @@ export const loadConfig = Effect.fn("homestead/load-config")(function* (startDir
             reason: "exported no config — use `export default { ... } satisfies HomesteadConfig`",
           });
         }
-        return yield* validateConfigData(config);
+        return applyDefaults(config);
       }
     }
     const parent = path.dirname(dir);

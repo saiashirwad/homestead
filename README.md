@@ -1,100 +1,96 @@
 # homestead
 
-Two worktrees of the same repo both want port 3000 and the same database. homestead gives each one its own ports, its own `.env`, its own setup — opened in a [herdr](https://herdr.dev) pane.
+Deterministic git worktree isolation with dynamic port allocation, derived environments, and an Effect RPC control plane.
 
 ```bash
-homestead worktree my-feature
+homestead create my-feature
 ```
 
-A branch, provisioned and open, in one command.
+A branch, isolated with its own conflict-free ports, derived `.env`, and dependencies provisioned in one command.
 
-## An agent per issue
+---
+
+## Core Capabilities
+
+- **Port Allocation**: Scans sibling worktrees and local TCP listeners to allocate conflict-free ports deterministically.
+- **Environment Derivation**: Copies or templates `.env`, computing branch/slug specific overrides (e.g. per-worktree databases).
+- **Setup & Teardown**: Runs lifecycle commands (`bun install`, migrations) in the isolated worktree directory.
+- **Effect RPC Control Plane**: Unix Domain Socket daemon with namespaced RPCs (`v1/worktree/create`, `v1/worktree/list`, `v1/worktree/remove`) and in-memory idempotency.
+
+---
+
+## CLI Usage
 
 ```bash
-homestead issue 21 22 23
-```
-
-Three worktrees, three panes, a coding agent booted in each and handed its issue.
-
-Stack a later wave on an integration branch so it sees earlier work without merging to the default branch first:
-
-```bash
-homestead issue 24 25 --from integration
-```
-
-`--from` overrides the base per run; set `issues.base` in the config to make it the persistent default.
-
-Tear one down when you're done:
-
-```bash
-homestead close 21        # keep the branch, move the issue to review
-homestead complete 21     # merged — remove the worktree and branch
-homestead kill 21         # discard it
-```
-
-## Land a finished branch
-
-```bash
-homestead land 21              # merge → regenerate → verify → keep only if green
-homestead land 21 --complete  # …and on green, run `homestead complete` for you
-```
-
-Integrating a finished branch by hand is the same chore every time: stash WIP, merge, rebuild generated files (a text merge of those is wrong), run checks, commit only if green. `land` owns it — and rolls the whole merge back on red, returning your stashed WIP either way. Run it from the primary checkout on the default branch; pass several branches to land them in order. Configure the regenerate and verify commands under `land`.
-
-## See everything at once
-
-```bash
-homestead ls
-```
-
-A read-only dashboard — one row per worktree, joining git, each `.env`, tracking state, and herdr:
-
-```
-SLUG         BRANCH       PORTS              DB              AGENT     PANE   ORIGIN
-auth-rework  auth-rework  WEB=3001 API=4001  hs_authrework   running   ws-7   you
-issue-142    142          WEB=3002 API=4002  hs_142          done      —      [auto]
-```
-
-Every column degrades to `—` on its own if a source is missing; it never mutates anything.
-
-## Someone else's PR
-
-Pull a PR into a real worktree instead of reading a web diff:
-
-```bash
-homestead review 87       # read-only, Claude reviews it
-homestead pr 87           # Claude continues it and pushes (same-repo only)
-```
-
-## Setup
-
-```bash
-bun add -g homestead
+# Initialize homestead in a repository
 homestead init
+
+# Create an isolated worktree (allocates ports, derives .env, runs setup)
+homestead create feature-auth --from main
+
+# List active worktrees, branches, ports, and paths
+homestead ls
+
+# Remove a worktree and clean up its branch & resources
+homestead rm feature-auth
+
+# Run the background RPC daemon over Unix Domain Socket
+homestead server
+
+# Ping the daemon
+homestead ping
+
+# Stop the daemon
+homestead shutdown
 ```
 
-`init` leaves you a fully typed `homestead.config.ts` — ports, env, setup steps, agent:
+---
+
+## Configuration (`homestead.config.ts`)
 
 ```ts
-import type { HomesteadConfig } from "./generated/homestead.config.types";
+import type { HomesteadConfig } from "homestead";
 
 export default {
-  ports: [{ key: "PORT", base: 3000 }],
+  // Ports to dynamically allocate starting from a base
+  ports: [
+    { key: "PORT", base: 3000 },
+    { key: "CLIENT_PORT", base: 5173 },
+  ],
+
+  // Environment file derivation
   env: {
     source: ".env",
-    derive: ({ slug }) => ({ DATABASE_URL: `.../${slug}` }),
+    fallback: ".env.example",
+    derive: ({ slug }) => ({
+      DATABASE_URL: `postgres://localhost:5432/myapp_${slug}`,
+    }),
   },
-  setup: [{ label: "install", run: ["bun", "install"] }],
-  agent: { command: ["claude"], surface: "worktree" },
+
+  // Setup commands executed in the worktree root
+  setup: [
+    { label: "install", run: ["bun", "install"] },
+  ],
+
+  // Teardown commands executed before removing the worktree
+  teardown: [
+    { label: "db:drop", run: ["bun", "run", "db:drop"] },
+  ],
 } satisfies HomesteadConfig;
 ```
 
-It goes further — per-issue agent prompts, shared services, lifecycle hooks. The [example config](./homestead.config.example.ts) covers the rest.
+---
 
-## Driving homestead from an agent
+## Integrating with Frontends & AI Agents
 
-Any coding agent can drive worktree orchestration through a small, stable contract — the status sentinel, `agent wait` exit codes, and provenance markers. See [docs/ORCHESTRATION.md](./docs/ORCHESTRATION.md).
+Because Homestead exposes its control plane over typed Effect RPC (`@effect/rpc`) via Unix Domain Sockets:
+- **Agents & Orchestrators** can provision and tear down environments programmatically with `HomesteadClient`.
+- **Dashboards & TUIs** can connect directly to `~/.homestead/run/daemon.sock` to inspect or control live worktrees.
+- **Terminal Multiplexers** (tmux, Zellij, Ghostty, Herdr) can be composed on top by wrapping `homestead create`.
+
+---
 
 ## Requirements
 
-git, a herdr session, [Bun](https://bun.sh), and an authenticated `gh` for issue and PR flows.
+- [Bun](https://bun.sh) (>= 1.0.0)
+- Git (>= 2.20)

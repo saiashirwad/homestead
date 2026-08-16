@@ -1,75 +1,16 @@
 #!/usr/bin/env bun
 import { BunRuntime } from "@effect/platform-bun";
-import { Console, Effect, Option, Schedule } from "effect";
+import { Console, Effect, Option } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
+import * as crypto from "node:crypto";
 import pkg from "../package.json" with { type: "json" };
-import { loadConfig, loadConfigOrUndefined } from "./config.ts";
-import {
-  ConfigInvalid,
-  ConfigNotFound,
-  ExternalCommandError,
-  ServiceUnavailable,
-  UsageError,
-} from "./errors.ts";
-import { explainTimeout } from "./herdr/errors.ts";
-import { Herdr } from "./herdr/service.ts";
 import { initRepo } from "./init.ts";
-import { parseIssueArg, validateIssueRefs } from "./issues.ts";
-import { runPlan } from "./waves-cmd.ts";
-import { launchIssues, requireAgentConfig } from "./issue/provision.ts";
-import { parsePrArg, type PrRef } from "./pr/ref.ts";
-import { launchPr } from "./pr/provision.ts";
-import { closeBranch, completeBranch, killBranch } from "./teardown.ts";
-import { runLand } from "./land.ts";
-import { renderDashboard } from "./dashboard.ts";
-import { runGc } from "./gc.ts";
-import { runDoctor } from "./doctor.ts";
-import {
-  exitCodeFor,
-  parseCompactDuration,
-  resolveWorktreeDir,
-  waitForAgent,
-} from "./agent/wait.ts";
-import { resolveSpawnPrompt, spawnAgent } from "./agent/spawn.ts";
-import { promptAgent } from "./agent/prompt.ts";
-import { PENDING_JSON, resultForSlug } from "./agent/result.ts";
-import { finalizeAgentStatus } from "./agent/finalize.ts";
-import { resolveRepo, setupWorktree } from "./worktree/index.ts";
-import { runMcpServer } from "./mcp.ts";
+import { makeClient } from "./rpc/client.ts";
+import { getDefaultSocketPath } from "./rpc/shared.ts";
+import { makeServer } from "./rpc/server.ts";
+import { resolveRepo } from "./worktree/repo.ts";
+import { WorktreeManager } from "./worktree/manager.ts";
 import { AppLayer } from "./runtime.ts";
-import { DEFAULT_REVIEW_LABEL } from "./defaults.ts";
-import type { WorktreeOptions } from "./types.ts";
-
-const fail = (message: string) =>
-  Console.error(message).pipe(Effect.andThen(Effect.fail(new UsageError({ message }))));
-
-const issueRef = Argument.string("issue").pipe(
-  Argument.filterMap(
-    (token) => {
-      const ref = parseIssueArg(token);
-      return ref === undefined ? Option.none() : Option.some(ref);
-    },
-    (token) => `[homestead] '${token}' is not an issue number or GitHub issue URL.`,
-  ),
-);
-
-const prRefArg = Argument.string("pr").pipe(
-  Argument.filterMap(
-    (token) => {
-      const ref = parsePrArg(token);
-      return ref === undefined ? Option.none() : Option.some(ref);
-    },
-    (token) => `[homestead] '${token}' is not a PR number or GitHub PR URL.`,
-  ),
-  Argument.withDescription("PR number or GitHub PR URL"),
-);
-
-const branchTarget = Argument.string("target").pipe(
-  Argument.map((token) => {
-    const ref = parseIssueArg(token);
-    return ref === undefined ? token : String(ref.number);
-  }),
-);
 
 const initCommand = Command.make("init", {}, () =>
   Effect.gen(function* () {
@@ -78,622 +19,193 @@ const initCommand = Command.make("init", {}, () =>
   }),
 ).pipe(Command.withDescription("one-time: scaffold a starter homestead.config.ts"));
 
-const worktreeCommand = Command.make(
-  "worktree",
+const pingCommand = Command.make(
+  "ping",
+  {
+    socket: Flag.optional(Flag.string("socket")).pipe(
+      Flag.withDescription("custom socket path (default: ~/.homestead/run/daemon.sock)"),
+    ),
+  },
+  ({ socket }) =>
+    Effect.gen(function* () {
+      const socketPath = Option.getOrElse(socket, getDefaultSocketPath);
+      const client = yield* makeClient(socketPath);
+      const res = yield* client.ping();
+      yield* Console.log(`✓ Daemon is alive (timestamp: ${res.timestamp})`);
+    }),
+).pipe(Command.withDescription("check if the Homestead daemon is running"));
+
+const shutdownCommand = Command.make(
+  "shutdown",
+  {
+    socket: Flag.optional(Flag.string("socket")).pipe(
+      Flag.withDescription("custom socket path (default: ~/.homestead/run/daemon.sock)"),
+    ),
+  },
+  ({ socket }) =>
+    Effect.gen(function* () {
+      const socketPath = Option.getOrElse(socket, getDefaultSocketPath);
+      const client = yield* makeClient(socketPath);
+      yield* client.shutdown();
+      yield* Console.log("✓ Daemon shut down successfully");
+    }),
+).pipe(Command.withDescription("stop the running Homestead daemon"));
+
+const serverCommand = Command.make(
+  "server",
+  {
+    socket: Flag.optional(Flag.string("socket")).pipe(
+      Flag.withDescription("custom socket path (default: ~/.homestead/run/daemon.sock)"),
+    ),
+  },
+  ({ socket }) =>
+    Effect.gen(function* () {
+      const socketPath = Option.getOrElse(socket, getDefaultSocketPath);
+      yield* Effect.scoped(makeServer(socketPath));
+    }),
+).pipe(Command.withDescription("run the Homestead RPC daemon over Unix Domain Socket"));
+
+const createCommand = Command.make(
+  "create",
   {
     name: Argument.string("name").pipe(Argument.withDescription("worktree / branch name")),
     from: Flag.optional(Flag.string("from")).pipe(
       Flag.withDescription("base ref to branch from (default: repo default branch)"),
     ),
-    dir: Flag.optional(Flag.string("dir")).pipe(
-      Flag.withDescription("target directory (default: ~/worktrees/<repo>/<slug>)"),
+    repo: Flag.optional(Flag.string("repo")).pipe(
+      Flag.withDescription("repository root (default: current working directory repo)"),
     ),
-    noSetup: Flag.boolean("no-setup").pipe(Flag.withDescription("skip env/dependency setup")),
-    noHerdr: Flag.boolean("no-herdr").pipe(
-      Flag.withDescription("just create the worktree; don't open a herdr surface"),
-    ),
-    dryRun: Flag.boolean("dry-run").pipe(Flag.withDescription("plan only; don't create anything")),
   },
-  ({ name, from, dir, noSetup, noHerdr, dryRun }) =>
+  ({ name, from, repo }) =>
     Effect.gen(function* () {
-      const repo = yield* resolveRepo();
-      const config = yield* loadConfig(repo.primaryRoot);
-      const options: WorktreeOptions = {
-        create: name,
-        from: Option.getOrUndefined(from),
-        dir: Option.getOrUndefined(dir),
-        noSetup,
-        dryRun,
-      };
-      const plan = yield* setupWorktree(config, options, repo);
-      if (dryRun) return;
+      const repoRoot = Option.getOrElse(repo, () => process.cwd());
+      const manager = yield* WorktreeManager;
+      const canonicalRepo = yield* manager.validateRepoRoot(repoRoot);
 
-      if (noHerdr) {
-        yield* Console.log(`\n✅ worktree '${name}' created at ${plan.targetDir}`);
+      const info = yield* manager.createWorktree({
+        requestId: crypto.randomUUID(),
+        repoRoot: canonicalRepo,
+        name,
+        from: Option.getOrUndefined(from),
+      });
+
+      const portKeys = Object.keys(info.ports);
+      const portsStr = portKeys.length > 0
+        ? ` (ports: ${portKeys.map((k) => `${k}=${info.ports[k]}`).join(", ")})`
+        : "";
+      yield* Console.log(`\n✅ Worktree "${info.name}" ready at ${info.path}${portsStr}`);
+    }),
+).pipe(Command.withDescription("provision an isolated worktree with allocated ports and derived .env"));
+
+const listCommand = Command.make(
+  "list",
+  {
+    repo: Flag.optional(Flag.string("repo")).pipe(
+      Flag.withDescription("repository root (default: current working directory repo)"),
+    ),
+  },
+  ({ repo }) =>
+    Effect.gen(function* () {
+      const repoRoot = Option.getOrElse(repo, () => process.cwd());
+      const manager = yield* WorktreeManager;
+      const canonicalRepo = yield* manager.validateRepoRoot(repoRoot);
+      const worktrees = yield* manager.listWorktrees({ repoRoot: canonicalRepo });
+
+      if (worktrees.length === 0) {
+        yield* Console.log("No worktrees found.");
         return;
       }
 
-      const herdr = yield* Herdr;
-      const pane = yield* herdr.createSurface("worktree", plan.targetDir, name).pipe(
-        Effect.catchTags({
-          HerdrError: (e) => fail(`[homestead] couldn't open worktree in herdr (${e.op})`),
-          HerdrNotAvailable: (e) => fail(e.reason),
-        }),
-      );
-      yield* Console.log(`\n✅ worktree '${name}' opened in herdr pane ${pane} — switch in to drive it`);
-    }),
-).pipe(Command.withDescription("provision a worktree off the base ref + open it in herdr"));
-
-const issueCommand = Command.make(
-  "issue",
-  {
-    refs: issueRef.pipe(Argument.atLeast(1), Argument.withDescription("issue number or GitHub issue URL")),
-    from: Flag.optional(Flag.string("from")).pipe(
-      Flag.withDescription("base ref to fork the wave from (default: issues.base config, else repo default branch)"),
-    ),
-  },
-  ({ refs, from }) =>
-    Effect.gen(function* () {
-      const repo = yield* resolveRepo();
-      const config = yield* loadConfig(repo.primaryRoot);
-      const agent = yield* requireAgentConfig(config.agent).pipe(
-        Effect.catchTag("UsageError", (e) => fail(e.message)),
-      );
-
-      yield* launchIssues({
-        refs,
-        config,
-        repo,
-        agent,
-        issueConfig: config.issues,
-        from: Option.getOrUndefined(from),
-      }).pipe(
-        Effect.catchTag("IssueRepoMismatch", (e) =>
-          fail(
-            `[homestead] issue URL points at ${e.owner}/${e.repo}, but you're in ${e.here}. ` +
-              `Run homestead from inside ${e.owner}/${e.repo}, or pass the bare issue number.`,
-          ),
-        ),
-      );
-    }),
-).pipe(Command.withDescription("issue = number or GitHub issue URL; one worktree + agent each"));
-
-const planCommand = Command.make(
-  "plan",
-  {
-    refs: issueRef.pipe(
-      Argument.atLeast(1),
-      Argument.withDescription("issue number or GitHub issue URL"),
-    ),
-    json: Flag.boolean("json").pipe(Flag.withDescription("emit the machine-readable schedule")),
-  },
-  ({ refs, json }) =>
-    Effect.gen(function* () {
-      yield* validateIssueRefs(refs).pipe(
-        Effect.catchTag("IssueRepoMismatch", (e) =>
-          fail(
-            `[homestead] issue URL points at ${e.owner}/${e.repo}, but you're in ${e.here}. ` +
-              `Run homestead from inside ${e.owner}/${e.repo}, or pass the bare issue number.`,
-          ),
-        ),
-      );
-      // planWaves rejects unresolvable depends-on titles and dependency cycles;
-      // print the offender and exit non-zero (fail → clean line + exit 1).
-      yield* runPlan(refs, json).pipe(Effect.catchTag("WavePlanError", (e) => fail(e.message)));
-    }),
-).pipe(
-  Command.withDescription("emit collision-aware build waves + a serial integrate order for an issue set"),
-);
-
-const killCommand = Command.make(
-  "kill",
-  {
-    branches: branchTarget.pipe(
-      Argument.atLeast(1),
-      Argument.withDescription("branch name, issue number, or issue URL"),
-    ),
-    keepRemote: Flag.boolean("keep-remote").pipe(
-      Flag.withDescription("keep the remote branch (default: delete branches you own)"),
-    ),
-  },
-  ({ branches, keepRemote }) =>
-    Effect.gen(function* () {
-      const repo = yield* resolveRepo();
-      const config = yield* loadConfigOrUndefined(repo.primaryRoot);
-      yield* Effect.forEach(
-        branches,
-        (branch) => killBranch(repo.primaryRoot, repo.repoName, branch, keepRemote, config),
-        {
-          discard: true,
-        },
-      );
-      yield* Console.log(`\n✅ killed ${branches.length}: ${branches.join(", ")}`);
-    }),
-).pipe(Command.withDescription("remove worktree + branch + herdr surface, reverse issue signals"));
-
-const closeCommand = Command.make(
-  "close",
-  {
-    branches: branchTarget.pipe(
-      Argument.atLeast(1),
-      Argument.withDescription("issue number, issue URL, or branch name"),
-    ),
-  },
-  ({ branches }) =>
-    Effect.gen(function* () {
-      const repo = yield* resolveRepo();
-      const config = yield* loadConfigOrUndefined(repo.primaryRoot);
-      const reviewLabel =
-        typeof config?.issues?.reviewLabel === "string"
-          ? config.issues.reviewLabel
-          : DEFAULT_REVIEW_LABEL;
-      yield* Effect.forEach(
-        branches,
-        (branch) => closeBranch(repo.primaryRoot, repo.repoName, branch, reviewLabel, config),
-        {
-          discard: true,
-        },
-      );
-      yield* Console.log(`\n✅ closed ${branches.length}: ${branches.join(", ")}`);
-    }),
-).pipe(Command.withDescription("finalize: remove worktree + herdr surface, keep the branch, issue → review"));
-
-const completeCommand = Command.make(
-  "complete",
-  {
-    branches: branchTarget.pipe(
-      Argument.atLeast(1),
-      Argument.withDescription("issue number, issue URL, or branch name"),
-    ),
-    keepRemote: Flag.boolean("keep-remote").pipe(
-      Flag.withDescription("keep the remote branch (default: delete branches you own)"),
-    ),
-    allowSpawned: Flag.boolean("allow-spawned").pipe(
-      Flag.withDescription("land machine-spawned (auto-work) branches (default: refuse)"),
-    ),
-  },
-  ({ branches, keepRemote, allowSpawned }) =>
-    Effect.gen(function* () {
-      const repo = yield* resolveRepo();
-      const config = yield* loadConfigOrUndefined(repo.primaryRoot);
-      yield* Effect.forEach(
-        branches,
-        (branch) => completeBranch(repo.primaryRoot, repo.repoName, branch, keepRemote, config, allowSpawned),
-        {
-          discard: true,
-        },
-      );
-      yield* Console.log(`\n✅ completed ${branches.length}: ${branches.join(", ")}`);
-    }),
-).pipe(Command.withDescription("mark issue completed on GitHub + remove worktree & branch (local + remote)"));
-
-const landCommand = Command.make(
-  "land",
-  {
-    branches: branchTarget.pipe(
-      Argument.atLeast(1),
-      Argument.withDescription("branch name, issue number, or issue URL"),
-    ),
-    complete: Flag.boolean("complete").pipe(
-      Flag.withDescription("on green, chain `homestead complete` for each landed branch"),
-    ),
-    keepRemote: Flag.boolean("keep-remote").pipe(
-      Flag.withDescription("with --complete: keep the remote branch (default: delete branches you own)"),
-    ),
-    allowSpawned: Flag.boolean("allow-spawned").pipe(
-      Flag.withDescription("with --complete: land machine-spawned (auto-work) branches (default: refuse)"),
-    ),
-  },
-  ({ branches, complete, keepRemote, allowSpawned }) =>
-    Effect.gen(function* () {
-      const repo = yield* resolveRepo();
-      const config = yield* loadConfigOrUndefined(repo.primaryRoot);
-      const ok = yield* runLand(repo.primaryRoot, repo.repoName, branches, config, {
-        complete,
-        keepRemote,
-        allowSpawned,
-      });
-      // Command.run yields 0/1 itself; set 1 explicitly on a soft failure (wrong
-      // branch or any branch that didn't land) so scripts can gate on it.
-      if (!ok) {
-        yield* Effect.sync(() => {
-          process.exitCode = 1;
-        });
+      yield* Console.log("\nNAME                 BRANCH               PORTS                        PATH");
+      yield* Console.log("-------------------- -------------------- ---------------------------- ----------------------------------------");
+      for (const wt of worktrees) {
+        const portsStr = Object.entries(wt.ports)
+          .map(([k, v]) => `${k}=${v}`)
+          .join(" ") || "—";
+        const namePad = wt.name.padEnd(20).slice(0, 20);
+        const branchPad = wt.branch.padEnd(20).slice(0, 20);
+        const portsPad = portsStr.padEnd(28).slice(0, 28);
+        yield* Console.log(`${namePad} ${branchPad} ${portsPad} ${wt.path}`);
       }
+      yield* Console.log("");
     }),
-).pipe(
-  Command.withDescription("merge a branch into the default branch, regenerate, verify, keep only on green"),
-);
+).pipe(Command.withDescription("list active worktrees in the repository"));
 
-const runPr = (mode: "review" | "work", ref: PrRef) =>
+const lsCommand = Command.make("ls", {
+  repo: Flag.optional(Flag.string("repo")).pipe(
+    Flag.withDescription("repository root (default: current working directory repo)"),
+  ),
+}, ({ repo }) =>
   Effect.gen(function* () {
-    const repo = yield* resolveRepo();
-    const config = yield* loadConfig(repo.primaryRoot);
-    const agent = yield* requireAgentConfig(config.agent).pipe(
-      Effect.catchTag("UsageError", (e) => fail(e.message)),
-    );
-    yield* launchPr({ mode, ref, config, repo, agent }).pipe(
-      Effect.catchTags({
-        IssueRepoMismatch: (e) =>
-          fail(
-            `[homestead] PR URL points at ${e.owner}/${e.repo}, but you're in ${e.here}. ` +
-              `Run homestead from inside ${e.owner}/${e.repo}, or pass the bare PR number.`,
-          ),
-        UsageError: (e) => fail(e.message),
-        HerdrError: (e) => fail(`[homestead] couldn't open the PR in herdr (${e.op})`),
-        HerdrNotAvailable: (e) => fail(e.reason),
-        HerdrTimeout: (e) => fail(explainTimeout(e, "[homestead] ")),
-      }),
-    );
-  });
+    const repoRoot = Option.getOrElse(repo, () => process.cwd());
+    const manager = yield* WorktreeManager;
+    const canonicalRepo = yield* manager.validateRepoRoot(repoRoot);
+    const worktrees = yield* manager.listWorktrees({ repoRoot: canonicalRepo });
 
-const reviewCommand = Command.make("review", { ref: prRefArg }, ({ ref }) => runPr("review", ref)).pipe(
-  Command.withDescription("pull a PR into a worktree; Claude summarizes + runs checks (read-only)"),
-);
+    if (worktrees.length === 0) {
+      yield* Console.log("No worktrees found.");
+      return;
+    }
 
-const prCommand = Command.make("pr", { ref: prRefArg }, ({ ref }) => runPr("work", ref)).pipe(
-  Command.withDescription("pull a PR into a worktree; Claude continues the work (same-repo only)"),
-);
+    yield* Console.log("\nNAME                 BRANCH               PORTS                        PATH");
+    yield* Console.log("-------------------- -------------------- ---------------------------- ----------------------------------------");
+    for (const wt of worktrees) {
+      const portsStr = Object.entries(wt.ports)
+        .map(([k, v]) => `${k}=${v}`)
+        .join(" ") || "—";
+      const namePad = wt.name.padEnd(20).slice(0, 20);
+      const branchPad = wt.branch.padEnd(20).slice(0, 20);
+      const portsPad = portsStr.padEnd(28).slice(0, 28);
+      yield* Console.log(`${namePad} ${branchPad} ${portsPad} ${wt.path}`);
+    }
+    yield* Console.log("");
+  }),
+).pipe(Command.withDescription("alias for `list`"));
 
-const statusLabel = (status: "done" | "blocked" | "failed"): string =>
-  status === "done" ? "✅ done —" : status === "blocked" ? "⏸ blocked —" : "❌ failed —";
-
-const agentWaitCommand = Command.make(
-  "wait",
+const rmCommand = Command.make(
+  "rm",
   {
-    target: branchTarget.pipe(
-      Argument.withDescription("branch name, issue number, or issue URL"),
+    name: Argument.string("name").pipe(Argument.withDescription("worktree name to remove")),
+    repo: Flag.optional(Flag.string("repo")).pipe(
+      Flag.withDescription("repository root (default: current working directory repo)"),
     ),
-    timeout: Flag.string("timeout").pipe(
-      Flag.withDefault("30m"),
-      Flag.withDescription("backstop wait before giving up, e.g. 30m, 45m, 2h (default 30m)"),
-    ),
-    pane: Flag.optional(Flag.string("pane")).pipe(
-      Flag.withDescription("paneId for the idle-prompt backstop (else file-or-timeout only)"),
-    ),
-    poll: Flag.string("poll").pipe(
-      Flag.withDefault("2s"),
-      Flag.withDescription("poll interval, e.g. 2s, 500ms (default 2s)"),
+    force: Flag.boolean("force").pipe(
+      Flag.withDescription("force removal even for protected branches (main/master)"),
     ),
   },
-  ({ target, timeout, pane, poll }) =>
+  ({ name, repo, force }) =>
     Effect.gen(function* () {
-      const timeoutMs = parseCompactDuration(timeout);
-      const pollMs = parseCompactDuration(poll);
-      if (timeoutMs === undefined) {
-        return yield* fail(`[homestead] invalid --timeout '${timeout}' (use e.g. 30m, 2s, 500ms)`);
-      }
-      if (pollMs === undefined) {
-        return yield* fail(`[homestead] invalid --poll '${poll}' (use e.g. 30m, 2s, 500ms)`);
-      }
+      const repoRoot = Option.getOrElse(repo, () => process.cwd());
+      const manager = yield* WorktreeManager;
+      const canonicalRepo = yield* manager.validateRepoRoot(repoRoot);
 
-      const repo = yield* resolveRepo();
-      const config = yield* loadConfigOrUndefined(repo.primaryRoot);
-      const worktreeDir = yield* resolveWorktreeDir(repo.repoName, target, config);
-
-      const outcome = yield* waitForAgent({
-        worktreeDir,
-        paneId: Option.getOrUndefined(pane),
-        timeoutMs,
-        pollMs,
+      yield* manager.removeWorktree({
+        requestId: crypto.randomUUID(),
+        repoRoot: canonicalRepo,
+        name,
+        force,
       });
 
-      if (outcome._tag === "status") {
-        yield* Console.log(`\n${statusLabel(outcome.file.status)} ${outcome.file.summary}`);
-      } else if (outcome.reason === "idle-pane") {
-        yield* Console.log(
-          `\n⚠ herdr reports the agent stopped (idle/done) but it never wrote ${worktreeDir}/.homestead/agent-status.json — no trustworthy signal`,
-        );
-      } else {
-        yield* Console.log(
-          `\n⚠ no agent-status.json after ${timeout} — agent still running, wedged, or ignored the convention`,
-        );
-      }
-
-      // Command.run only yields 0/1 on its own; set 2/3 (and 0/1) ourselves and
-      // succeed, so defaultTeardown leaves process.exitCode untouched.
-      const code = exitCodeFor(outcome);
-      yield* Effect.sync(() => {
-        process.exitCode = code;
-      });
+      yield* Console.log(`\n✅ Worktree "${name}" removed successfully`);
     }),
-).pipe(
-  Command.withDescription("block until the agent signals done/blocked/failed; exit 0/1/2/3"),
-);
-
-const agentSpawnCommand = Command.make(
-  "spawn",
-  {
-    slug: Argument.string("slug").pipe(Argument.withDescription("worktree / branch name for the spawned agent")),
-    promptWords: Argument.string("prompt").pipe(
-      Argument.variadic(),
-      Argument.withDescription("prompt to seed (positional words are joined)"),
-    ),
-    promptFlag: Flag.optional(Flag.string("prompt")).pipe(
-      Flag.withDescription("prompt to seed (alternative to positional); '--prompt -' reads stdin"),
-    ),
-  },
-  ({ slug, promptWords, promptFlag }) =>
-    Effect.gen(function* () {
-      const prompt = yield* resolveSpawnPrompt(
-        promptWords,
-        promptFlag,
-        Effect.promise(() => Bun.stdin.text()),
-      ).pipe(Effect.catchTag("UsageError", (e) => fail(e.message)));
-
-      const repo = yield* resolveRepo();
-      const config = yield* loadConfig(repo.primaryRoot);
-      const agent = yield* requireAgentConfig(config.agent).pipe(
-        Effect.catchTag("UsageError", (e) => fail(e.message)),
-      );
-
-      yield* spawnAgent({
-        config,
-        repo,
-        slug,
-        prompt,
-        agent,
-        createdAt: new Date().toISOString(),
-      }).pipe(
-        Effect.catchTags({
-          HerdrError: (e) => fail(`[homestead] couldn't open the spawned agent in herdr (${e.op})`),
-          HerdrNotAvailable: (e) => fail(e.reason),
-          HerdrTimeout: (e) => fail(explainTimeout(e, "[homestead] ")),
-        }),
-      );
-    }),
-).pipe(
-  Command.withDescription("provision an issue-less worktree + boot an agent on a free-form prompt"),
-);
-
-const agentPromptCommand = Command.make(
-  "prompt",
-  {
-    slug: Argument.string("slug").pipe(Argument.withDescription("slug passed to `agent spawn`")),
-    promptWords: Argument.string("prompt").pipe(
-      Argument.variadic(),
-      Argument.withDescription("follow-up text to send (positional words are joined)"),
-    ),
-    promptFlag: Flag.optional(Flag.string("prompt")).pipe(
-      Flag.withDescription("follow-up text (alternative to positional); '--prompt -' reads stdin"),
-    ),
-  },
-  ({ slug, promptWords, promptFlag }) =>
-    Effect.gen(function* () {
-      const text = yield* resolveSpawnPrompt(
-        promptWords,
-        promptFlag,
-        Effect.promise(() => Bun.stdin.text()),
-        "agent prompt",
-      ).pipe(Effect.catchTag("UsageError", (e) => fail(e.message)));
-
-      const repo = yield* resolveRepo();
-      const config = yield* loadConfigOrUndefined(repo.primaryRoot);
-
-      yield* promptAgent({ repoName: repo.repoName, slug, text, config }).pipe(
-        Effect.catchTags({
-          UsageError: (e) => fail(e.message),
-          HerdrError: (e) => fail(`[homestead] couldn't send to the agent's pane (${e.op})`),
-        }),
-      );
-    }),
-).pipe(
-  Command.withDescription("send a follow-up turn to a running spawned agent (resolved by slug)"),
-);
-
-const agentResultCommand = Command.make(
-  "result",
-  {
-    slug: Argument.string("slug").pipe(Argument.withDescription("slug passed to `agent spawn`")),
-  },
-  ({ slug }) =>
-    Effect.gen(function* () {
-      const repo = yield* resolveRepo();
-      const config = yield* loadConfigOrUndefined(repo.primaryRoot);
-      const result = yield* resultForSlug(repo.repoName, slug, config);
-
-      switch (result._tag) {
-        case "status":
-          return yield* Console.log(result.body);
-        case "pending":
-          return yield* Console.log(PENDING_JSON);
-        case "unknown":
-          return yield* fail(
-            `[homestead] no spawned agent for slug '${slug}' (no worktree / marker — was it spawned with 'agent spawn'?)`,
-          );
-      }
-    }),
-).pipe(
-  Command.withDescription("print a spawned agent's status sentinel as JSON (pending if not done yet)"),
-);
-
-// Invoked by the autonomous-mode pane wrapper (see agent/autonomous.ts) the
-// instant the inner agent exits — NOT a command a human runs by hand. Runs the
-// configured `agent.check` in the current worktree and writes the authoritative
-// `.homestead/agent-status.json` so `agent wait` has a deterministic signal.
-const agentFinalizeCommand = Command.make(
-  "finalize",
-  {
-    agentExit: Flag.optional(Flag.string("agent-exit")).pipe(
-      Flag.withDescription("the inner agent's exit code (the wrapper passes $? here)"),
-    ),
-  },
-  ({ agentExit }) =>
-    Effect.gen(function* () {
-      // Runs in the pane's cwd, which is the worktree itself; the config (and the
-      // sentinel we write) both live here.
-      const worktreeDir = process.cwd();
-      const config = yield* loadConfigOrUndefined(worktreeDir);
-      const exitFlag = Option.getOrUndefined(agentExit);
-      const parsedExit = exitFlag === undefined ? undefined : Number(exitFlag);
-      const agentExitCode = parsedExit !== undefined && Number.isFinite(parsedExit) ? parsedExit : undefined;
-
-      const written = yield* finalizeAgentStatus({
-        worktreeDir,
-        check: config?.agent?.check,
-        agentExit: agentExitCode,
-      });
-
-      if (Option.isNone(written)) {
-        yield* Console.log("⏸ left the existing 'blocked' status untouched");
-      } else {
-        yield* Console.log(`${statusLabel(written.value)} wrote .homestead/agent-status.json`);
-      }
-    }),
-).pipe(
-  Command.withDescription("(internal) harness-write the sentinel from the autonomous agent's exit + check"),
-);
-
-// Terminal escape sequences for the flicker-free watch redraw. The alternate
-// screen buffer (1049h/l) keeps the user's scrollback intact: we draw the live
-// table on a throwaway screen and restore the original on exit (incl. Ctrl-C).
-const ALT_SCREEN_ENTER = "\x1b[?1049h";
-const ALT_SCREEN_EXIT = "\x1b[?1049l";
-const CURSOR_HOME_CLEAR = "\x1b[H\x1b[2J";
-
-const writeStdout = (s: string) => Effect.sync(() => void process.stdout.write(s));
-
-// `ls --watch`: re-render the read-only dashboard in place every `intervalSeconds`.
-// acquireUseRelease guarantees the alt-screen is restored even on interrupt
-// (Ctrl-C), so the user's pre-watch scrollback survives. The loop body is exactly
-// the one-shot render — strictly read-only, no tracking/teardown/herdr mutations.
-const watchDashboard = (
-  repo: Parameters<typeof renderDashboard>[0],
-  config: Parameters<typeof renderDashboard>[1],
-  intervalSeconds: number,
-) =>
-  Effect.acquireUseRelease(
-    writeStdout(ALT_SCREEN_ENTER),
-    () =>
-      renderDashboard(repo, config).pipe(
-        Effect.flatMap((frame) => writeStdout(`${CURSOR_HOME_CLEAR}${frame}\n`)),
-        Effect.repeat({ schedule: Schedule.spaced(`${intervalSeconds} seconds`) }),
-      ),
-    () => writeStdout(ALT_SCREEN_EXIT),
-  );
-
-const lsCommand = Command.make(
-  "ls",
-  {
-    watch: Flag.boolean("watch").pipe(
-      Flag.withAlias("w"),
-      Flag.withDescription("auto-refresh the table in place until Ctrl-C (read-only)"),
-    ),
-    interval: Flag.integer("interval").pipe(
-      Flag.withAlias("n"),
-      Flag.withDefault(2),
-      Flag.withDescription("watch refresh interval in seconds (default 2)"),
-    ),
-  },
-  ({ watch, interval }) =>
-    Effect.gen(function* () {
-      const repo = yield* resolveRepo();
-      const config = yield* loadConfigOrUndefined(repo.primaryRoot);
-      if (!watch) {
-        yield* Console.log(yield* renderDashboard(repo, config));
-        return;
-      }
-      yield* watchDashboard(repo, config, interval);
-    }),
-).pipe(Command.withDescription("read-only dashboard: one row per worktree (ports, DB, agent, pane, origin)"));
-
-const gcCommand = Command.make(
-  "gc",
-  {
-    prune: Flag.boolean("prune").pipe(
-      Flag.withDescription("actually reclaim (default: dry-run — change nothing)"),
-    ),
-    yes: Flag.boolean("yes").pipe(
-      Flag.withAlias("y"),
-      Flag.withDescription("skip the confirmation prompt when pruning"),
-    ),
-    branches: Flag.boolean("branches").pipe(
-      Flag.withDescription("also delete orphaned homestead-owned branches"),
-    ),
-    keepRemote: Flag.boolean("keep-remote").pipe(
-      Flag.withDescription("never delete remote branches (mirrors kill/complete)"),
-    ),
-    json: Flag.boolean("json").pipe(Flag.withDescription("emit the machine-readable plan")),
-  },
-  ({ prune, yes, branches, keepRemote, json }) =>
-    Effect.gen(function* () {
-      const repo = yield* resolveRepo();
-      const config = yield* loadConfigOrUndefined(repo.primaryRoot);
-      yield* runGc(repo, config, { prune, yes, branches, keepRemote, json });
-    }),
-).pipe(
-  Command.withDescription("reconcile + reclaim orphaned worktrees, state, GitHub signals, and branches"),
-);
-
-const doctorCommand = Command.make(
-  "doctor",
-  {
-    fix: Flag.boolean("fix").pipe(
-      Flag.withDescription("re-run setup on half-provisioned worktrees (default: report only)"),
-    ),
-  },
-  ({ fix }) =>
-    Effect.gen(function* () {
-      const repo = yield* resolveRepo();
-      const config = yield* loadConfig(repo.primaryRoot);
-      yield* runDoctor(repo, config, { fix });
-    }),
-).pipe(
-  Command.withDescription("audit every worktree for half-provisioning, port conflicts, and stale state"),
-);
-
-// Speak MCP over stdio — for an MCP client to spawn (`{ "command": "homestead",
-// "args": ["mcp"] }`), not a command a human runs by hand. No flags; the server
-// operates on the repo it's launched in. runMcpServer builds its own runtime and
-// blocks until the client disconnects.
-const mcpCommand = Command.make("mcp", {}, () => runMcpServer(pkg.version)).pipe(
-  Command.withDescription("speak MCP over stdio: expose spawn/wait/result/ls/land/plan as typed tools"),
-);
-
-const agentCommand = Command.make("agent", {}).pipe(
-  Command.withDescription("agent lifecycle commands"),
-  Command.withSubcommands([
-    agentSpawnCommand,
-    agentPromptCommand,
-    agentResultCommand,
-    agentWaitCommand,
-    agentFinalizeCommand,
-  ]),
-);
+).pipe(Command.withDescription("remove a worktree and clean up its resources"));
 
 const homestead = Command.make("homestead", {}).pipe(
-  Command.withDescription("config-driven worktree + interactive-agent provisioning"),
+  Command.withDescription("deterministic git-worktree isolation with port allocation & RPC daemon"),
   Command.withSubcommands([
     initCommand,
-    worktreeCommand,
-    issueCommand,
-    planCommand,
-    killCommand,
-    closeCommand,
-    completeCommand,
-    landCommand,
-    reviewCommand,
-    prCommand,
-    agentCommand,
+    createCommand,
+    listCommand,
     lsCommand,
-    gcCommand,
-    doctorCommand,
-    mcpCommand,
+    rmCommand,
+    serverCommand,
+    pingCommand,
+    shutdownCommand,
   ]),
 );
 
-const program = Command.run(homestead, { version: pkg.version });
-
-program.pipe(
-  Effect.catchTags({
-    ConfigNotFound: (error: ConfigNotFound) =>
-      fail(`[homestead] ${error.detail}\n  Add a homestead.config.ts at your repo root: export default { ... } satisfies HomesteadConfig`),
-    ConfigInvalid: (error: ConfigInvalid) => fail(`[homestead] invalid config at ${error.path}: ${error.reason}`),
-    ExternalCommandError: (error: ExternalCommandError) =>
-      fail(`[homestead] ${error.command} failed: ${error.detail}`),
-    ServiceUnavailable: (error: ServiceUnavailable) =>
-      fail(`[homestead] service '${error.name}' (${error.host}:${error.port}) ${error.detail}`),
-  }),
+const program = Command.run(homestead, { version: pkg.version }).pipe(
   Effect.provide(AppLayer),
-  BunRuntime.runMain,
 );
+
+BunRuntime.runMain(program);

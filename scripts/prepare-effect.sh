@@ -6,7 +6,7 @@ repo_dir=".repos/effect"
 repo_url="https://github.com/Effect-TS/effect-smol"
 
 # Enable Effect Language Service build-time diagnostics (idempotent).
-bunx effect-language-service patch || true
+bunx effect-tsgo patch || true
 
 if [ -d "$repo_dir/.git" ]; then
   exit 0

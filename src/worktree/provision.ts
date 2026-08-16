@@ -1,26 +1,12 @@
 import { Console, Effect, FileSystem } from "effect";
-import { makeContext, type HomesteadContext } from "../context.ts";
 import { ConfigInvalid, ServiceUnavailable } from "../errors.ts";
 import { applyTemplate, setEnvVar } from "../text.ts";
 import { pollSchedule, probeTcp, run, runExit } from "../process.ts";
 import { DEFAULT_SERVICE_TIMEOUT_MS } from "../defaults.ts";
-import {
-  type HomesteadConfig,
-  type Plan,
-  type SetupStep,
-} from "../types.ts";
+import type { HomesteadConfig, Plan, SetupStep, TeardownStep } from "../types.ts";
 import type { Repo } from "./repo.ts";
 
-export const resolveSetup = (
-  cfg:
-    | ReadonlyArray<SetupStep>
-    | ((ctx: HomesteadContext & { plan: Plan }) => ReadonlyArray<SetupStep>)
-    | undefined,
-  ctx: HomesteadContext & { plan: Plan },
-): ReadonlyArray<SetupStep> => (typeof cfg === "function" ? cfg(ctx) : cfg ?? []);
-
-// Write the worktree's .env: the source body with our owned keys overridden.
-export const writeEnv = Effect.fn("homestead/write-env")(function* (plan: Plan) {
+export const writeEnv = Effect.fnUntraced(function* (plan: Plan) {
   const fs = yield* FileSystem.FileSystem;
   const lines = plan.envEdits.reduce(
     (acc, [key, value]) => setEnvVar(acc, key, value),
@@ -30,9 +16,7 @@ export const writeEnv = Effect.fn("homestead/write-env")(function* (plan: Plan) 
   yield* Console.log(`\n✓ wrote ${plan.envPath}`);
 });
 
-// Make sure each configured TCP service is reachable (starting it if a `start`
-// command is given, then polling until it accepts connections).
-export const ensureServices = Effect.fn("homestead/ensure-services")(function* (
+export const ensureServices = Effect.fnUntraced(function* (
   repo: Repo,
   config: HomesteadConfig,
 ) {
@@ -86,8 +70,11 @@ export const ensureServices = Effect.fn("homestead/ensure-services")(function* (
   }
 });
 
-// Run the config's ordered setup commands against the worktree.
-export const runSetup = Effect.fn("homestead/run-setup")(function* (repo: Repo, plan: Plan, config: HomesteadConfig) {
+export const runSetup = Effect.fnUntraced(function* (
+  repo: Repo,
+  plan: Plan,
+  config: HomesteadConfig,
+) {
   const vars: Record<string, string> = {
     slug: plan.slug,
     branch: plan.branch,
@@ -96,18 +83,8 @@ export const runSetup = Effect.fn("homestead/run-setup")(function* (repo: Repo, 
     repoName: repo.repoName,
   };
   const envMap = Object.fromEntries(plan.envEdits);
-  const ctx = {
-    ...makeContext({
-      repoName: repo.repoName,
-      slug: plan.slug,
-      branch: plan.branch,
-      worktreeDir: plan.targetDir,
-      env: (key) => envMap[key],
-    }),
-    plan,
-  };
 
-  for (const step of resolveSetup(config.setup, ctx)) {
+  for (const step of config.setup ?? []) {
     const argv = step.run.map((arg) => applyTemplate(arg, vars, envMap));
     const command = argv[0];
     if (command === undefined || command === "") {
@@ -118,24 +95,45 @@ export const runSetup = Effect.fn("homestead/run-setup")(function* (repo: Repo, 
     }
     const args = argv.slice(1);
     const cwd = step.cwd === undefined ? plan.targetDir : applyTemplate(step.cwd, vars, envMap);
-    const injected = Object.fromEntries(
-      (step.injectEnv ?? [])
-        .map((key) => [key, envMap[key]] as const)
-        .filter((entry): entry is readonly [string, string] => entry[1] !== undefined),
-    );
-    const runOptions = { cwd, ...(Object.keys(injected).length > 0 ? { env: injected } : {}) };
 
+    yield* Console.log(`\n▸ Setup: ${step.label} (${step.run.join(" ")})`);
     if (step.fatal === false) {
-      const code = yield* runExit(command, args, runOptions);
+      const code = yield* runExit(command, args, { cwd, env: envMap });
       if (code !== 0) {
-        yield* Console.log(`\n⚠ ${step.label} failed (exit ${code}) — continuing (fatal: false)`);
+        yield* Console.log(`  ⚠ setup step "${step.label}" exited ${code} (ignored)`);
       }
     } else {
-      yield* run(step.label, command, args, runOptions);
+      yield* run(step.label, command, args, { cwd, env: envMap });
     }
   }
 });
 
-export const printDone = Effect.fn("homestead/print-done")((plan: Plan) =>
-  Console.log(`\n✅ Worktree ready: ${plan.targetDir}`),
-);
+export const runTeardown = Effect.fnUntraced(function* (
+  repo: Repo,
+  worktreeDir: string,
+  slug: string,
+  branch: string,
+  config: HomesteadConfig,
+) {
+  const vars: Record<string, string> = {
+    slug,
+    branch,
+    targetDir: worktreeDir,
+    primaryRoot: repo.primaryRoot,
+    repoName: repo.repoName,
+  };
+
+  for (const step of config.teardown ?? []) {
+    const argv = step.run.map((arg) => applyTemplate(arg, vars, {}));
+    const command = argv[0];
+    if (command === undefined || command === "") continue;
+    const args = argv.slice(1);
+    const cwd = step.cwd === undefined ? repo.primaryRoot : applyTemplate(step.cwd, vars, {});
+    yield* Console.log(`\n▸ Teardown: ${step.label} (${step.run.join(" ")})`);
+    yield* runExit(command, args, { cwd });
+  }
+});
+
+export const printDone = Effect.fnUntraced(function* (plan: Plan) {
+  yield* Console.log(`\n✅ Worktree ready: ${plan.targetDir}`);
+});

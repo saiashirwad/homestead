@@ -1,21 +1,14 @@
 import { Console, Effect, FileSystem, Path } from "effect";
 import * as os from "node:os";
-import { emit } from "../events.ts";
 import { Git } from "../git/service.ts";
 import { nextFreePort, readEnvVar, slugify } from "../text.ts";
 import { probeTcp } from "../process.ts";
-import {
-  DEFAULT_ENV_FALLBACK,
-  DEFAULT_ENV_SOURCE,
-} from "../defaults.ts";
-import { makeContext } from "../context.ts";
-import {
-  type HomesteadConfig,
-  type HomesteadContext,
-  type Plan,
-  type PortSpec,
-  type WorktreeContext,
-  type WorktreeOptions,
+import { DEFAULT_ENV_FALLBACK, DEFAULT_ENV_SOURCE } from "../defaults.ts";
+import type {
+  HomesteadConfig,
+  Plan,
+  PortSpec,
+  WorktreeContext,
 } from "../types.ts";
 import { resolveDefaultBaseRef } from "./base-ref.ts";
 import {
@@ -38,15 +31,12 @@ export const makeWorktreeContext = (
   target: Target,
   sourceContent: string,
 ): WorktreeContext => ({
-  ...makeContext({
-    repoName: repo.repoName,
-    slug: target.slug,
-    branch: target.branch,
-    worktreeDir: target.targetDir,
-    env: (key) => readEnvVar(sourceContent, key),
-  }),
-  targetDir: target.targetDir,
+  repoName: repo.repoName,
+  slug: target.slug,
+  branch: target.branch,
+  worktreeDir: target.targetDir,
   primaryRoot: repo.primaryRoot,
+  env: (key) => readEnvVar(sourceContent, key),
 });
 
 export const resolveTargetDir = (input: {
@@ -61,7 +51,7 @@ export const resolveTargetDir = (input: {
   if (dirFlag !== undefined) return path.resolve(dirFlag);
   if (config.worktreeDir !== undefined) {
     return path.resolve(
-      config.worktreeDir(makeContext({ repoName, slug, branch, worktreeDir: "" })),
+      config.worktreeDir({ repoName, slug, branch }),
     );
   }
   return path.join(os.homedir(), "worktrees", repoName, slug);
@@ -79,30 +69,22 @@ export const collectUsedPorts = (
       if (Number.isInteger(value)) used.get(spec.key)?.add(value);
     }
   }
-  // In-flight cross-process claims (live reservations) count as used too, so a
-  // port picked-but-not-yet-written by another homestead run isn't handed out twice.
   for (const { key, port } of reserved) {
     if (Number.isInteger(port)) used.get(key)?.add(port);
   }
   return used;
 };
 
-export const resolvePortBase = (
-  base: number | ((ctx: HomesteadContext) => number),
-  ctx: HomesteadContext,
-): number => (typeof base === "function" ? base(ctx) : base);
-
 export const computePortEdits = (
   targetEnv: string,
   ports: ReadonlyArray<PortSpec>,
   used: ReadonlyMap<string, ReadonlySet<number>>,
-  ctx: HomesteadContext,
 ): ReadonlyArray<readonly [string, string]> => {
   const envEdits: Array<readonly [string, string]> = [];
   for (const spec of ports) {
     const existing = readEnvVar(targetEnv, spec.key);
     const value =
-      existing ?? String(nextFreePort(resolvePortBase(spec.base, ctx), used.get(spec.key) ?? new Set()));
+      existing ?? String(nextFreePort(spec.base, used.get(spec.key) ?? new Set()));
     envEdits.push([spec.key, value]);
   }
   return envEdits;
@@ -112,20 +94,7 @@ const PROBE_HOST = "127.0.0.1";
 const PROBE_TIMEOUT_MS = 200;
 const MAX_PORT_ATTEMPTS = 20;
 
-// Pick a port that is BOTH free in `used` (the sibling-.env-derived set) AND has
-// no live listener. We only probe the .env-chosen candidate, not the whole range
-// — probing is sequential network I/O, so probing every port would be too slow.
-// On a live hit we record the busy port in `used` and ask `nextFreePort` again,
-// bounded by `maxAttempts` so a saturated range fails loudly instead of hanging.
-//
-// Side effect: mutates `used`, adding every live port it skipped (but NOT the
-// returned port). That lets a downstream `computePortEdits(base, used)` recompute
-// this exact pick — the busy ports are excluded, the chosen one is the next free.
-//
-// ⚠ TOCTOU: a port free at probe time can be grabbed milliseconds later by
-// another process or a parallel homestead run. Probing shrinks the window
-// dramatically but cannot close it; we deliberately do NOT bind/reserve the port.
-export const pickFreePort = Effect.fn("homestead/pick-free-port")(function* (
+export const pickFreePort = Effect.fnUntraced(function* (
   base: number,
   used: Set<number>,
   probe: (port: number) => Effect.Effect<boolean>,
@@ -145,16 +114,10 @@ export const pickFreePort = Effect.fn("homestead/pick-free-port")(function* (
   );
 });
 
-// Liveness-aware port allocation. For each spec the worktree's own .env already
-// claims, we reuse that value verbatim and never probe (idempotent re-run). For
-// the rest we probe-pick a port, then reserve the chosen port against every other
-// spec so two specs sharing a range can't both grab it — its own set is left
-// free of the pick so `computePortEdits` below reproduces the same value.
-export const resolvePortEdits = Effect.fn("homestead/resolve-port-edits")(function* (
+export const resolvePortEdits = Effect.fnUntraced(function* (
   targetEnv: string,
   ports: ReadonlyArray<PortSpec>,
   used: Map<string, Set<number>>,
-  ctx: HomesteadContext,
   probe: (port: number) => Effect.Effect<boolean>,
   maxAttempts: number = MAX_PORT_ATTEMPTS,
 ) {
@@ -165,77 +128,15 @@ export const resolvePortEdits = Effect.fn("homestead/resolve-port-edits")(functi
       set = new Set<number>();
       used.set(spec.key, set);
     }
-    const picked = yield* pickFreePort(resolvePortBase(spec.base, ctx), set, probe, maxAttempts);
+    const picked = yield* pickFreePort(spec.base, set, probe, maxAttempts);
     for (const other of ports) {
       if (other.key !== spec.key) used.get(other.key)?.add(picked);
     }
   }
-  return computePortEdits(targetEnv, ports, used, ctx);
+  return computePortEdits(targetEnv, ports, used);
 });
 
-// Resolve which worktree we're isolating — creating it first with `git worktree
-// add` when --create is given.
-export const resolveTarget = Effect.fn("homestead/resolve-target")(function* (
-  repo: Repo,
-  options: WorktreeOptions,
-  config: HomesteadConfig,
-) {
-  const git = yield* Git;
-  const fs = yield* FileSystem.FileSystem;
-  const path = yield* Path.Path;
-
-  const dryRun = options.dryRun ?? false;
-  const createBranch = options.create;
-  let targetDir: string;
-  let branch: string;
-
-  if (createBranch !== undefined) {
-    branch = createBranch;
-    const slug = slugify(branch);
-    targetDir = resolveTargetDir({
-      dirFlag: options.dir,
-      config,
-      repoName: repo.repoName,
-      slug,
-      branch,
-      path,
-    });
-
-    const exists = yield* git.refExists(repo.primaryRoot, `refs/heads/${branch}`);
-    const from = options.from ?? (exists ? undefined : yield* resolveDefaultBaseRef(repo.primaryRoot));
-    yield* emit(config.onEvent, {
-      type: "worktree.creating",
-      branch,
-      targetDir,
-      ...(from !== undefined ? { from } : {}),
-    });
-    if (!dryRun) {
-      const alreadyThere = yield* fs.exists(targetDir);
-      if (alreadyThere) {
-        yield* Console.log(`  ${targetDir} already exists — skipping git worktree add`);
-      } else {
-        yield* fs.makeDirectory(path.dirname(targetDir), { recursive: true });
-        if (exists) {
-          yield* git.worktree.add(repo.startCwd, { dir: targetDir, branch });
-        } else {
-          const baseRef = from ?? (yield* resolveDefaultBaseRef(repo.primaryRoot));
-          yield* git.worktree.addNew(repo.startCwd, { dir: targetDir, branch, baseRef });
-        }
-      }
-    }
-  } else {
-    targetDir = yield* git.topLevel(repo.startCwd);
-    const head = yield* git.currentBranch(targetDir);
-    branch = head === "HEAD" ? yield* git.shortHead(targetDir) : head;
-  }
-
-  const slug = slugify(branch) || slugify(path.basename(targetDir));
-  return { targetDir, branch, slug } satisfies Target;
-});
-
-// Decide every isolated value (the worktree's existing .env wins for ports, so
-// re-runs are idempotent) without changing anything on disk.
-export const resolvePlan = Effect.fn("homestead/resolve-plan")(function* (
+export const resolvePlan = Effect.fnUntraced(function* (
   repo: Repo,
   target: Target,
   config: HomesteadConfig,
@@ -249,9 +150,6 @@ export const resolvePlan = Effect.fn("homestead/resolve-plan")(function* (
   const reusedExistingEnv = yield* fs.exists(envPath);
   const targetEnv = reusedExistingEnv ? yield* fs.readFileString(envPath) : "";
 
-  // .env body source: reuse the worktree's own .env (idempotent re-run), else
-  // copy the primary checkout's configured source (real dev values), else the
-  // committed fallback template (blank values — the plan warns).
   const sourceName = config.env?.source ?? DEFAULT_ENV_SOURCE;
   const fallbackName = config.env?.fallback ?? DEFAULT_ENV_FALLBACK;
   const mainEnvPath = path.join(repo.primaryRoot, sourceName);
@@ -262,7 +160,6 @@ export const resolvePlan = Effect.fn("homestead/resolve-plan")(function* (
   const sourceExists = yield* fs.exists(sourcePath);
   const sourceContent = sourceExists ? yield* fs.readFileString(sourcePath) : "";
 
-  // Gather ports already claimed by sibling worktrees so we never reuse one.
   const worktreePaths = (yield* git.worktree.list(repo.startCwd)).map((entry) => entry.path);
 
   const ports = config.ports ?? [];
@@ -274,19 +171,6 @@ export const resolvePlan = Effect.fn("homestead/resolve-plan")(function* (
     siblingEnvContents.push(yield* fs.readFileString(siblingEnv));
   }
 
-  const portCtx = makeContext({
-    repoName: repo.repoName,
-    slug: target.slug,
-    branch: target.branch,
-    worktreeDir: target.targetDir,
-    env: (key) => readEnvVar(sourceContent, key),
-  });
-
-  // Cross-process layer: reading the live reservations, picking ports, and
-  // recording the picks as claims must be ONE locked critical section — if only
-  // the write were locked, two homestead processes could both read a port "free"
-  // and both take it. The claim bridges this pick→writeEnv gap; the in-process
-  // Semaphore in setupWorktree serializes the same span for sibling fibers.
   const portEdits =
     ports.length === 0
       ? ([] as ReadonlyArray<readonly [string, string]>)
@@ -295,7 +179,7 @@ export const resolvePlan = Effect.fn("homestead/resolve-plan")(function* (
           Effect.gen(function* () {
             const reserved = liveReservations(yield* readReservations(repo.repoName), Date.now());
             const used = collectUsedPorts(siblingEnvContents, ports, reserved);
-            const picks = yield* resolvePortEdits(targetEnv, ports, used, portCtx, probe);
+            const picks = yield* resolvePortEdits(targetEnv, ports, used, probe);
             const claims = reservationsToClaim(
               ports,
               targetEnv,
@@ -314,8 +198,6 @@ export const resolvePlan = Effect.fn("homestead/resolve-plan")(function* (
 
   const envEdits: Array<readonly [string, string]> = [...portEdits];
 
-  // Derived keys (e.g. a per-worktree DATABASE_URL) — the config function reads
-  // the SOURCE .env via ctx.env and returns the values to override.
   if (config.env?.derive !== undefined) {
     const ctx = makeWorktreeContext(repo, target, sourceContent);
     for (const [key, value] of Object.entries(config.env.derive(ctx))) {
@@ -336,7 +218,7 @@ export const resolvePlan = Effect.fn("homestead/resolve-plan")(function* (
   } satisfies Plan;
 });
 
-export const printPlan = Effect.fn("homestead/print-plan")(function* (plan: Plan) {
+export const printPlan = Effect.fnUntraced(function* (plan: Plan) {
   const envSource = plan.reusedExistingEnv
     ? "existing .env (updated in place)"
     : plan.fellBackToExample
