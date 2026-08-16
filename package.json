@@ -22,6 +22,9 @@
   "scripts": {
     "prepare": "./scripts/prepare-effect.sh && effect-tsgo patch --typescript --oxlint",
     "homestead": "bun ./src/cli.ts",
+    "build:bin": "bun build --compile --minify ./src/cli.ts --outfile dist/homestead",
+    "build:bins": "./scripts/build-binaries.sh",
+    "install:local": "./scripts/install.sh",
     "format": "oxfmt --write",
     "format:check": "oxfmt --check",
     "lint": "oxlint --type-aware",

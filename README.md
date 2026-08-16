@@ -4,8 +4,17 @@ Programmable Git worktree orchestration with dynamic port allocation, isolated e
 
 Built for **AI coding agents, multi-agent parallel executors, CI pipelines, and developer tooling** that need to spin up and tear down isolated Git workspaces without colliding on ports, environment variables, or database state.
 
+## Installation
+
 ```bash
+# As a TypeScript/Effect library:
 bun add homestead
+
+# As a standalone CLI (no Node/Bun runtime required):
+curl -fsSL https://raw.githubusercontent.com/saiashirwad/homestead/main/scripts/install.sh | bash
+
+# Or globally via Bun/NPM:
+bun add -g homestead
 ```
 
 ---
