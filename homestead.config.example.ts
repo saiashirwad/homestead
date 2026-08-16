@@ -1,4 +1,4 @@
-import type { HomesteadConfig } from "./src/types.ts";
+import type { HomesteadConfig } from "homestead";
 
 const withDbName = (raw: string, dbName: string): string => {
   const queryIndex = raw.indexOf("?");
