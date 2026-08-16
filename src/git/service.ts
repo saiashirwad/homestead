@@ -74,7 +74,7 @@ export class Git extends Context.Service<Git>()("homestead/git/service/Git", {
           Effect.flatMap((code) =>
             code === 0
               ? capture(cwd, ["symbolic-ref", "--short", name])
-              : Effect.succeed(undefined),
+              : Effect.void.pipe(Effect.as(undefined)),
           ),
         ),
 

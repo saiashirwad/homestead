@@ -1,4 +1,4 @@
-import { Console, Effect, Scope } from "effect"
+import { Console, Data, Effect, Scope } from "effect"
 import * as net from "node:net"
 import * as fs from "node:fs"
 import * as path from "node:path"
@@ -12,9 +12,11 @@ export interface SocketOwnership {
   readonly releaseLock: () => void
 }
 
-interface NodeSystemError extends Error {
-  readonly code?: string | undefined
-}
+class NodeSystemError extends Data.TaggedError("NodeSystemError")<{
+  readonly cause: unknown
+  readonly code?: string
+  readonly message: string
+}> {}
 
 const inProcessLocks = new Set<string>()
 
@@ -53,7 +55,7 @@ export const probeSocket = (socketPath: string): Effect.Effect<SocketProbeResult
       finish("live")
     })
 
-    client.on("error", (err: NodeSystemError) => {
+    client.on("error", (err: NodeJS.ErrnoException) => {
       const code = err.code
       if (code === "ECONNREFUSED" || code === "ENOENT") {
         finish("dead")
@@ -76,51 +78,80 @@ const acquireStartupLock = (
       })
     }
 
-    let acquired = false
-    try {
-      const fd = fs.openSync(
-        lockPath,
-        fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_RDWR,
-      )
-      fs.writeSync(fd, `${process.pid}\n`)
-      fs.closeSync(fd)
-      acquired = true
-    } catch (err: unknown) {
-      // SAFETY: Node fs.openSync throws system errors with code property.
-      const code = (err as { readonly code?: unknown })?.code
-      if (code === "EEXIST") {
-        let lockPid: number | undefined
-        try {
-          const content = fs.readFileSync(lockPath, "utf-8").trim()
-          lockPid = parseInt(content, 10)
-        } catch {}
+    const createLockFile = Effect.try({
+      try: () => {
+        const fd = fs.openSync(
+          lockPath,
+          fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_RDWR,
+        )
+        fs.writeSync(fd, `${process.pid}\n`)
+        fs.closeSync(fd)
+      },
+      catch: (error) =>
+        new NodeSystemError({
+          cause: error,
+          code: error instanceof Error && "code" in error ? String(error.code) : undefined,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+    })
 
-        let isAlive = false
-        if (lockPid && !isNaN(lockPid)) {
-          if (lockPid === process.pid) {
-            return yield* SocketInUseError.make({
-              socketPath,
-              message: `Homestead daemon socket lock is already held by PID ${lockPid}`,
-            })
-          }
-          try {
-            process.kill(lockPid, 0)
-            isAlive = true
-          } catch (e: unknown) {
-            // SAFETY: Node process.kill throws system error with code ESRCH if process is dead.
-            const errCode = (e as { readonly code?: unknown })?.code
-            isAlive = errCode !== "ESRCH"
-          }
-        }
+    const initialAttempt = yield* createLockFile.pipe(
+      Effect.match({
+        onFailure: (error) => ({ _tag: "Failure", error }) as const,
+        onSuccess: () => ({ _tag: "Success" }) as const,
+      }),
+    )
 
-        if (isAlive) {
+    if (initialAttempt._tag === "Failure") {
+      if (initialAttempt.error.code !== "EEXIST") {
+        return yield* SocketStartupError.make({
+          socketPath,
+          reason: "LockAcquisitionFailed",
+          message: `Failed to acquire lock for ${socketPath}: ${initialAttempt.error.message}`,
+        })
+      }
+
+      const lockPid = yield* Effect.try({
+        try: () => parseInt(fs.readFileSync(lockPath, "utf-8").trim(), 10),
+        catch: (error) =>
+          new NodeSystemError({
+            cause: error,
+            code: error instanceof Error && "code" in error ? String(error.code) : undefined,
+            message: error instanceof Error ? error.message : String(error),
+          }),
+      }).pipe(Effect.orElseSucceed(() => undefined))
+
+      let isAlive = false
+      if (lockPid && !isNaN(lockPid)) {
+        if (lockPid === process.pid) {
           return yield* SocketInUseError.make({
             socketPath,
-            message: `Homestead daemon socket is already locked by active process PID ${lockPid}: ${socketPath}`,
+            message: `Homestead daemon socket lock is already held by PID ${lockPid}`,
           })
         }
+        isAlive = yield* Effect.try({
+          try: () => {
+            process.kill(lockPid, 0)
+            return true
+          },
+          catch: (error) =>
+            new NodeSystemError({
+              cause: error,
+              code: error instanceof Error && "code" in error ? String(error.code) : undefined,
+              message: error instanceof Error ? error.message : String(error),
+            }),
+        }).pipe(Effect.catch((error) => Effect.succeed(error.code !== "ESRCH")))
+      }
 
-        try {
+      if (isAlive) {
+        return yield* SocketInUseError.make({
+          socketPath,
+          message: `Homestead daemon socket is already locked by active process PID ${lockPid}: ${socketPath}`,
+        })
+      }
+
+      const acquiredAfterCleanup = yield* Effect.try({
+        try: () => {
           fs.unlinkSync(lockPath)
           const fd = fs.openSync(
             lockPath,
@@ -128,25 +159,26 @@ const acquireStartupLock = (
           )
           fs.writeSync(fd, `${process.pid}\n`)
           fs.closeSync(fd)
-          acquired = true
-        } catch {
-          return yield* SocketInUseError.make({
-            socketPath,
-            message: `Homestead daemon socket lock contention at ${lockPath}`,
-          })
-        }
-      } else {
-        return yield* SocketStartupError.make({
+        },
+        catch: (error) =>
+          new NodeSystemError({
+            cause: error,
+            code: error instanceof Error && "code" in error ? String(error.code) : undefined,
+            message: error instanceof Error ? error.message : String(error),
+          }),
+      }).pipe(
+        Effect.as(true),
+        Effect.orElseSucceed(() => false),
+      )
+      if (!acquiredAfterCleanup) {
+        return yield* SocketInUseError.make({
           socketPath,
-          reason: "LockAcquisitionFailed",
-          message: `Failed to acquire lock for ${socketPath}: ${err instanceof Error ? err.message : String(err)}`,
+          message: `Homestead daemon socket lock contention at ${lockPath}`,
         })
       }
     }
 
-    if (acquired) {
-      inProcessLocks.add(socketPath)
-    }
+    inProcessLocks.add(socketPath)
 
     const releaseLock = () => {
       inProcessLocks.delete(socketPath)
@@ -189,10 +221,15 @@ export const prepareSocket = (
 
     yield* Effect.addFinalizer(() => Effect.sync(ownership.releaseLock))
 
-    let stat: fs.Stats | undefined
-    try {
-      stat = fs.lstatSync(socketPath)
-    } catch {}
+    const stat = yield* Effect.try({
+      try: () => fs.lstatSync(socketPath),
+      catch: (error) =>
+        new NodeSystemError({
+          cause: error,
+          code: error instanceof Error && "code" in error ? String(error.code) : undefined,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+    }).pipe(Effect.orElseSucceed(() => undefined))
 
     if (stat) {
       if (!stat.isSocket()) {
@@ -216,15 +253,15 @@ export const prepareSocket = (
         yield* Console.log(
           `[lifecycle] Detected stale socket at ${socketPath}; cleaning up before bind.`,
         )
-        try {
-          fs.unlinkSync(socketPath)
-        } catch (err) {
-          return yield* SocketStartupError.make({
-            socketPath,
-            reason: "StaleSocketUnlinkFailed",
-            message: `Failed to unlink stale socket file at ${socketPath}: ${err instanceof Error ? err.message : String(err)}`,
-          })
-        }
+        yield* Effect.try({
+          try: () => fs.unlinkSync(socketPath),
+          catch: (err) =>
+            SocketStartupError.make({
+              socketPath,
+              reason: "StaleSocketUnlinkFailed",
+              message: `Failed to unlink stale socket file at ${socketPath}: ${err instanceof Error ? err.message : String(err)}`,
+            }),
+        })
       } else {
         return yield* SocketInUseError.make({
           socketPath,
@@ -241,15 +278,17 @@ export const registerScopedSocketCleanup = (
   ownership?: SocketOwnership,
 ): Effect.Effect<void, never, Scope.Scope> =>
   Effect.gen(function* () {
-    let boundDev: number | undefined
-    let boundIno: number | undefined
-    try {
-      const stat = fs.lstatSync(socketPath)
-      if (stat.isSocket()) {
-        boundDev = stat.dev
-        boundIno = stat.ino
-      }
-    } catch {}
+    const boundStat = yield* Effect.try({
+      try: () => fs.lstatSync(socketPath),
+      catch: (error) =>
+        new NodeSystemError({
+          cause: error,
+          code: error instanceof Error && "code" in error ? String(error.code) : undefined,
+          message: error instanceof Error ? error.message : String(error),
+        }),
+    }).pipe(Effect.orElseSucceed(() => undefined))
+    const boundDev = boundStat?.isSocket() ? boundStat.dev : undefined
+    const boundIno = boundStat?.isSocket() ? boundStat.ino : undefined
 
     yield* Effect.addFinalizer(() =>
       Effect.sync(() => {

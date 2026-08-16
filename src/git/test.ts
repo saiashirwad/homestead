@@ -44,7 +44,7 @@ export interface GitTestApi {
   readonly setShortHead: (cwd: string, sha: string) => Effect.Effect<void>
   readonly setTopLevel: (cwd: string, path: string) => Effect.Effect<void>
   readonly setBranchDeleteResult: (cwd: string, name: string, ok: boolean) => Effect.Effect<void>
-  readonly journal: () => Effect.Effect<GitJournal>
+  readonly journal: Effect.Effect<GitJournal>
 }
 
 export class GitTestHandle extends Context.Service<GitTestHandle, GitTestApi>()(
@@ -110,7 +110,7 @@ const buildGitTest = Effect.gen(function* () {
     setTopLevel: (cwd, path) => Ref.update(topLevels, (m) => new Map(m).set(cwd, path)),
     setBranchDeleteResult: (cwd, name, ok) =>
       Ref.update(branchDeleteResults, (m) => new Map(m).set(key(cwd, name), ok)),
-    journal: () => Ref.get(journal),
+    journal: Ref.get(journal),
   }
 
   const git: typeof Git.Service = {

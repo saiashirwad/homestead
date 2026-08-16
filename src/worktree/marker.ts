@@ -51,7 +51,7 @@ export const readProvisionMarker = Effect.fn("homestead/read-provision-marker")(
   const content = yield* fs.readFileString(file).pipe(Effect.orElseSucceed(() => ""))
   if (content === "") return Option.none<ProvisionMarker>()
 
-  const marker = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(ProvisionMarkerSchema))(
+  const marker = yield* Schema.decodeEffect(Schema.fromJsonString(ProvisionMarkerSchema))(
     content,
   ).pipe(Effect.orElseSucceed(() => undefined))
   return marker === undefined ? Option.none<ProvisionMarker>() : Option.some(marker)

@@ -15,7 +15,7 @@ test("GitTest stages a merge conflict and journals the abort", async () => {
       yield* git.abortMerge("/repo")
 
       expect(result).toEqual({ _tag: "Conflict", files: ["src/a.ts"] })
-      const journal = yield* handle.journal()
+      const journal = yield* handle.journal
       expect(journal.merges).toEqual([{ cwd: "/repo", branch: "feature" }])
       expect(journal.aborts).toEqual(["/repo"])
     }).pipe(Effect.provide(GitTest)),
@@ -52,7 +52,7 @@ test("GitTest worktree.list/pathForBranch + remove journal", async () => {
       expect(yield* git.worktree.pathForBranch("/repo", "feature")).toBe("/wt/feat")
       yield* git.worktree.remove("/repo", "/wt/feat")
 
-      const journal = yield* handle.journal()
+      const journal = yield* handle.journal
       expect(journal.worktreeRemoves).toEqual([{ cwd: "/repo", path: "/wt/feat" }])
     }).pipe(Effect.provide(GitTest)),
   )
@@ -69,7 +69,7 @@ test("GitTest setBranchDeleteResult stages false for branch.delete (still journa
       expect(ok).toBe(false)
 
       // The journal entry is still recorded even when the result is false.
-      const journal = yield* handle.journal()
+      const journal = yield* handle.journal
       expect(journal.branchDeletes).toEqual([{ cwd: "/repo", name: "feat" }])
     }).pipe(Effect.provide(GitTest)),
   )

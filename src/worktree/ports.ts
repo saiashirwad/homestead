@@ -114,7 +114,7 @@ export const readReservations = Effect.fn("homestead/read-reservations")(functio
   const content = yield* fs.readFileString(file).pipe(Effect.orElseSucceed(() => ""))
   if (content === "") return empty
 
-  const decoded = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(ReservationsFileSchema))(
+  const decoded = yield* Schema.decodeEffect(Schema.fromJsonString(ReservationsFileSchema))(
     content,
   ).pipe(Effect.orElseSucceed(() => undefined))
   return decoded?.reservations ?? empty

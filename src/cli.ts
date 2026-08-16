@@ -30,7 +30,7 @@ const pingCommand = Command.make(
     Effect.gen(function* () {
       const socketPath = Option.getOrElse(socket, getDefaultSocketPath)
       const client = yield* makeClient(socketPath)
-      const res = yield* client.ping()
+      const res = yield* client.ping
       yield* Console.log(`✓ Daemon is alive (timestamp: ${res.timestamp})`)
     }),
 ).pipe(Command.withDescription("check if the Homestead daemon is running"))
@@ -46,7 +46,7 @@ const shutdownCommand = Command.make(
     Effect.gen(function* () {
       const socketPath = Option.getOrElse(socket, getDefaultSocketPath)
       const client = yield* makeClient(socketPath)
-      yield* client.shutdown()
+      yield* client.shutdown
       yield* Console.log("✓ Daemon shut down successfully")
     }),
 ).pipe(Command.withDescription("stop the running Homestead daemon"))

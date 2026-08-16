@@ -37,7 +37,7 @@ describe("Homestead UDS End-to-End RPC Flow", () => {
           const pong = yield* runClient(
             Effect.gen(function* () {
               const client = yield* makeHomesteadClient
-              return yield* client.Ping()
+              return yield* client.Ping
             }),
           )
           expect(pong.timestamp).toBeGreaterThan(0)
@@ -89,7 +89,7 @@ describe("Homestead UDS End-to-End RPC Flow", () => {
           yield* runClient(
             Effect.gen(function* () {
               const client = yield* makeHomesteadClient
-              yield* client.Shutdown().pipe(Effect.ignoreCause)
+              yield* client.Shutdown.pipe(Effect.ignoreCause)
             }),
           )
 

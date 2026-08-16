@@ -84,10 +84,10 @@ export const HomesteadRpcs = RpcGroup.make(
 export type HomesteadRpcList = Rpcs<typeof HomesteadRpcs>
 
 export interface HomesteadClient {
-  readonly ping: () => Effect.Effect<{ timestamp: number }, RpcClientError>
-  readonly Ping: () => Effect.Effect<{ timestamp: number }, RpcClientError>
-  readonly shutdown: () => Effect.Effect<void, RpcClientError>
-  readonly Shutdown: () => Effect.Effect<void, RpcClientError>
+  readonly ping: Effect.Effect<{ timestamp: number }, RpcClientError>
+  readonly Ping: Effect.Effect<{ timestamp: number }, RpcClientError>
+  readonly shutdown: Effect.Effect<void, RpcClientError>
+  readonly Shutdown: Effect.Effect<void, RpcClientError>
   readonly createWorktree: (payload: {
     readonly requestId: string
     readonly repoRoot: string
@@ -166,10 +166,10 @@ export const makeHomesteadClient = Effect.gen(function* () {
 
   const client: HomesteadClient = {
     raw,
-    ping: () => raw["v1/daemon/ping"](void 0),
-    Ping: () => raw["v1/daemon/ping"](void 0),
-    shutdown: () => raw["v1/daemon/shutdown"](void 0),
-    Shutdown: () => raw["v1/daemon/shutdown"](void 0),
+    ping: raw["v1/daemon/ping"](void 0),
+    Ping: raw["v1/daemon/ping"](void 0),
+    shutdown: raw["v1/daemon/shutdown"](void 0),
+    Shutdown: raw["v1/daemon/shutdown"](void 0),
     createWorktree: (payload) => raw["v1/worktree/create"](payload),
     CreateWorktree: (payload) => raw["v1/worktree/create"](payload),
     listWorktrees: (payload) => raw["v1/worktree/list"](payload ?? {}),
