@@ -1,4 +1,4 @@
-import { Clock, Context, Effect, FileSystem, Layer, Path, Ref } from "effect"
+import { Clock, Context, Effect, FileSystem, Layer, Path, Ref, Schema } from "effect"
 import { ChildProcessSpawner } from "effect/unstable/process"
 import { BunServices } from "@effect/platform-bun"
 import { loadConfigOrUndefined } from "../config.ts"
@@ -20,12 +20,19 @@ import { PortAllocator } from "./ports.ts"
 import { provisionTarget } from "./index.ts"
 import { runTeardown } from "./provision.ts"
 
-interface IdempotencyRecord {
-  readonly rpcTag: string
-  readonly fingerprint: string
-  readonly result: unknown
-  readonly timestamp: number
-}
+type IdempotencyRecord =
+  | {
+      readonly rpcTag: "v1/worktree/create"
+      readonly fingerprint: string
+      readonly result: WorktreeInfo
+      readonly timestamp: number
+    }
+  | {
+      readonly rpcTag: "v1/worktree/remove"
+      readonly fingerprint: string
+      readonly result: RemoveWorktreeResult
+      readonly timestamp: number
+    }
 
 interface WorktreeState {
   readonly worktrees: Map<string, WorktreeInfo>
@@ -169,13 +176,25 @@ export const make: Effect.Effect<
       return canonical
     })
 
-  const checkOrRecordIdempotency = <T, E>(
+  function checkOrRecordIdempotency<E>(
     requestId: string,
-    rpcTag: string,
+    rpcTag: "v1/worktree/create",
     payload: PayloadRecord,
-    computation: Effect.Effect<T, E>,
-  ): Effect.Effect<T, E | RequestIdConflict> =>
-    Effect.gen(function* () {
+    computation: Effect.Effect<WorktreeInfo, E>,
+  ): Effect.Effect<WorktreeInfo, E | RequestIdConflict>
+  function checkOrRecordIdempotency<E>(
+    requestId: string,
+    rpcTag: "v1/worktree/remove",
+    payload: PayloadRecord,
+    computation: Effect.Effect<RemoveWorktreeResult, E>,
+  ): Effect.Effect<RemoveWorktreeResult, E | RequestIdConflict>
+  function checkOrRecordIdempotency<E>(
+    requestId: string,
+    rpcTag: "v1/worktree/create" | "v1/worktree/remove",
+    payload: PayloadRecord,
+    computation: Effect.Effect<WorktreeInfo | RemoveWorktreeResult, E>,
+  ): Effect.Effect<WorktreeInfo | RemoveWorktreeResult, E | RequestIdConflict> {
+    return Effect.gen(function* () {
       const fingerprint = computeFingerprint(payload)
 
       const state = yield* Ref.get(stateRef)
@@ -187,8 +206,7 @@ export const make: Effect.Effect<
             message: `Request ID "${requestId}" has already been used with different parameters or RPC.`,
           })
         }
-        // SAFETY: Cached idempotency result matches original computation result type T.
-        return existing.result as T
+        return existing.result
       }
 
       const result = yield* computation
@@ -202,17 +220,27 @@ export const make: Effect.Effect<
             newIdempotency.delete(oldestKey)
           }
         }
-        newIdempotency.set(requestId, {
-          rpcTag,
-          fingerprint,
-          result,
-          timestamp: now,
-        })
+        if (rpcTag === "v1/worktree/create" && Schema.is(WorktreeInfo)(result)) {
+          newIdempotency.set(requestId, {
+            rpcTag: "v1/worktree/create",
+            fingerprint,
+            result,
+            timestamp: now,
+          })
+        } else if (rpcTag === "v1/worktree/remove" && Schema.is(RemoveWorktreeResult)(result)) {
+          newIdempotency.set(requestId, {
+            rpcTag: "v1/worktree/remove",
+            fingerprint,
+            result,
+            timestamp: now,
+          })
+        }
         return { ...s, idempotency: newIdempotency }
       })
 
       return result
     })
+  }
 
   const createWorktree: WorktreeManagerApi["createWorktree"] = (payload) =>
     checkOrRecordIdempotency(

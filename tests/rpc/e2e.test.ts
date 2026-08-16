@@ -37,7 +37,7 @@ describe("Homestead UDS End-to-End RPC Flow", () => {
           const pong = yield* runClient(
             Effect.gen(function* () {
               const client = yield* makeHomesteadClient
-              return yield* client.Ping
+              return yield* client.ping
             }),
           )
           expect(pong.timestamp).toBeGreaterThan(0)
@@ -45,7 +45,7 @@ describe("Homestead UDS End-to-End RPC Flow", () => {
           const created = yield* runClient(
             Effect.gen(function* () {
               const client = yield* makeHomesteadClient
-              return yield* client.CreateWorktree({
+              return yield* client.createWorktree({
                 requestId: "e2e-req-create-1",
                 repoRoot: fixture.dir,
                 name: "e2e-feature-branch",
@@ -59,7 +59,7 @@ describe("Homestead UDS End-to-End RPC Flow", () => {
           const list = yield* runClient(
             Effect.gen(function* () {
               const client = yield* makeHomesteadClient
-              return yield* client.ListWorktrees({ repoRoot: fixture.dir })
+              return yield* client.listWorktrees({ repoRoot: fixture.dir })
             }),
           )
           expect(list.length).toBeGreaterThanOrEqual(1)
@@ -68,7 +68,7 @@ describe("Homestead UDS End-to-End RPC Flow", () => {
           const removed = yield* runClient(
             Effect.gen(function* () {
               const client = yield* makeHomesteadClient
-              return yield* client.RemoveWorktree({
+              return yield* client.removeWorktree({
                 requestId: "e2e-req-rm-1",
                 repoRoot: fixture.dir,
                 name: "e2e-feature-branch",
@@ -81,7 +81,7 @@ describe("Homestead UDS End-to-End RPC Flow", () => {
           const listAfter = yield* runClient(
             Effect.gen(function* () {
               const client = yield* makeHomesteadClient
-              return yield* client.ListWorktrees({ repoRoot: fixture.dir })
+              return yield* client.listWorktrees({ repoRoot: fixture.dir })
             }),
           )
           expect(listAfter.some((w) => w.name === "e2e-feature-branch")).toBe(false)
@@ -89,7 +89,7 @@ describe("Homestead UDS End-to-End RPC Flow", () => {
           yield* runClient(
             Effect.gen(function* () {
               const client = yield* makeHomesteadClient
-              yield* client.Shutdown.pipe(Effect.ignoreCause)
+              yield* client.shutdown.pipe(Effect.ignoreCause)
             }),
           )
 

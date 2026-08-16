@@ -85,24 +85,8 @@ export type HomesteadRpcList = Rpcs<typeof HomesteadRpcs>
 
 export interface HomesteadClient {
   readonly ping: Effect.Effect<{ timestamp: number }, RpcClientError>
-  readonly Ping: Effect.Effect<{ timestamp: number }, RpcClientError>
   readonly shutdown: Effect.Effect<void, RpcClientError>
-  readonly Shutdown: Effect.Effect<void, RpcClientError>
   readonly createWorktree: (payload: {
-    readonly requestId: string
-    readonly repoRoot: string
-    readonly name: string
-    readonly from?: string | undefined
-  }) => Effect.Effect<
-    WorktreeInfo,
-    | InvalidInput
-    | RepositoryNotFound
-    | WorktreeAlreadyExists
-    | RequestIdConflict
-    | ProvisionFailure
-    | RpcClientError
-  >
-  readonly CreateWorktree: (payload: {
     readonly requestId: string
     readonly repoRoot: string
     readonly name: string
@@ -122,28 +106,7 @@ export interface HomesteadClient {
     ReadonlyArray<WorktreeInfo>,
     InvalidInput | RepositoryNotFound | RpcClientError
   >
-  readonly ListWorktrees: (payload?: {
-    readonly repoRoot?: string | undefined
-  }) => Effect.Effect<
-    ReadonlyArray<WorktreeInfo>,
-    InvalidInput | RepositoryNotFound | RpcClientError
-  >
   readonly removeWorktree: (payload: {
-    readonly requestId: string
-    readonly repoRoot: string
-    readonly name: string
-    readonly force?: boolean | undefined
-  }) => Effect.Effect<
-    RemoveWorktreeResult,
-    | InvalidInput
-    | RepositoryNotFound
-    | WorktreeNotFound
-    | WorktreeRemovalRefused
-    | RequestIdConflict
-    | ProvisionFailure
-    | RpcClientError
-  >
-  readonly RemoveWorktree: (payload: {
     readonly requestId: string
     readonly repoRoot: string
     readonly name: string
@@ -167,15 +130,10 @@ export const makeHomesteadClient = Effect.gen(function* () {
   const client: HomesteadClient = {
     raw,
     ping: raw["v1/daemon/ping"](void 0),
-    Ping: raw["v1/daemon/ping"](void 0),
     shutdown: raw["v1/daemon/shutdown"](void 0),
-    Shutdown: raw["v1/daemon/shutdown"](void 0),
     createWorktree: (payload) => raw["v1/worktree/create"](payload),
-    CreateWorktree: (payload) => raw["v1/worktree/create"](payload),
     listWorktrees: (payload) => raw["v1/worktree/list"](payload ?? {}),
-    ListWorktrees: (payload) => raw["v1/worktree/list"](payload ?? {}),
     removeWorktree: (payload) => raw["v1/worktree/remove"](payload),
-    RemoveWorktree: (payload) => raw["v1/worktree/remove"](payload),
   }
 
   return client

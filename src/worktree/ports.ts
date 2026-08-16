@@ -1,4 +1,4 @@
-import { Context, Effect, FileSystem, Layer, Path, Schema, Semaphore } from "effect"
+import { Clock, Context, Effect, FileSystem, Layer, Path, Schema, Semaphore } from "effect"
 import * as os from "node:os"
 import { readEnvVar, slugify } from "../text.ts"
 import type { PortSpec } from "../types.ts"
@@ -46,10 +46,8 @@ export const isPidAlive = (pid: number): boolean => {
   try {
     process.kill(pid, 0)
     return true
-  } catch (e: unknown) {
-    // SAFETY: Node process.kill throws SystemError with code property on EPERM.
-    const errCode = (e as { readonly code?: unknown })?.code
-    return errCode === "EPERM"
+  } catch (cause) {
+    return cause instanceof Error && "code" in cause && cause.code === "EPERM"
   }
 }
 
@@ -130,12 +128,14 @@ export const writeReservations = Effect.fn("homestead/write-reservations")(funct
   yield* fs
     .makeDirectory(stateDir(path, repoName), { recursive: true })
     .pipe(Effect.orElseSucceed(() => undefined))
-  const encoded = yield* Schema.encodeUnknownEffect(ReservationsFileSchema)({
+  const encoded = yield* Schema.encodeEffect(
+    Schema.fromJsonString(ReservationsFileSchema),
+  )({
     reservations: [...reservations],
   }).pipe(Effect.orDie)
   yield* fs.writeFileString(
     reservationsPath(path, repoName),
-    `${JSON.stringify(encoded, null, 2)}\n`,
+    `${encoded}\n`,
   )
 })
 
@@ -193,14 +193,15 @@ export const withRegistryLock = <A, E, R>(repoName: string, use: Effect.Effect<A
 export const claimReservations = (
   repoName: string,
   toClaim: ReadonlyArray<Reservation>,
-  nowMs: number = Date.now(),
+  nowMs?: number,
   isAlive: (pid: number) => boolean = isPidAlive,
 ) =>
   withRegistryLock(
     repoName,
     Effect.gen(function* () {
+      const currentNowMs = nowMs ?? (yield* Clock.currentTimeMillis)
       const all = yield* readReservations(repoName)
-      const live = liveReservations(all, nowMs, isAlive)
+      const live = liveReservations(all, currentNowMs, isAlive)
       yield* writeReservations(repoName, [...live, ...toClaim])
     }),
   )
@@ -212,15 +213,16 @@ export const finalizeReservations = (
   repoName: string,
   branch: string,
   pid: number,
-  nowMs: number = Date.now(),
+  nowMs?: number,
   isAlive: (pid: number) => boolean = isPidAlive,
 ) =>
   withRegistryLock(
     repoName,
     Effect.gen(function* () {
+      const currentNowMs = nowMs ?? (yield* Clock.currentTimeMillis)
       const all = yield* readReservations(repoName)
       if (all.length === 0) return
-      const live = liveReservations(all, nowMs, isAlive)
+      const live = liveReservations(all, currentNowMs, isAlive)
       const remaining = live.filter((r) => !(r.branch === branch && r.pid === pid))
       yield* writeReservations(repoName, remaining)
     }),

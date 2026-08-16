@@ -65,6 +65,7 @@ export const ensureServices = Effect.fnUntraced(function* (repo: Repo, config: H
       })
     }
   }
+  return undefined
 })
 
 export const runSetup = Effect.fnUntraced(function* (
@@ -103,6 +104,7 @@ export const runSetup = Effect.fnUntraced(function* (
       yield* run(step.label, command, args, { cwd, env: envMap })
     }
   }
+  return undefined
 })
 
 export const runTeardown = Effect.fnUntraced(function* (

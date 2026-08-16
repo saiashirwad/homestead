@@ -13,8 +13,8 @@ interface ConfigModule {
   readonly default?: HomesteadConfig | undefined
 }
 
-const defaultExport = (mod: ConfigModule | null | undefined): HomesteadConfig | undefined =>
-  mod?.default
+const isConfigModule = (cause: unknown): cause is ConfigModule =>
+  cause instanceof Object
 
 export const applyDefaults = (config: HomesteadConfig): HomesteadConfig => ({
   ...config,
@@ -41,20 +41,20 @@ export const loadConfig = Effect.fnUntraced(function* (startDir: string) {
     for (const base of CONFIG_BASENAMES) {
       const candidate = path.join(dir, base)
       if (yield* fs.exists(candidate)) {
-        // SAFETY: Dynamic import of config file resolves to an ES module with an optional default export.
-        const mod = (yield* Effect.tryPromise({
-          try: () => import(pathToFileURL(candidate).href),
+        // SAFETY: Dynamic import resolves to an ES module object.
+        const raw = yield* Effect.tryPromise({
+          // SAFETY: Dynamic import returns a promise of an unknown module namespace.
+          try: () => import(pathToFileURL(candidate).href) as Promise<unknown>,
           catch: (cause) =>
             ConfigInvalid.make({ path: candidate, reason: `failed to import: ${String(cause)}` }),
-        })) as ConfigModule
-        const config = defaultExport(mod)
-        if (config === undefined) {
+        })
+        if (!isConfigModule(raw) || raw.default === undefined) {
           return yield* ConfigInvalid.make({
             path: candidate,
             reason: "exported no config — use `export default { ... } satisfies HomesteadConfig`",
           })
         }
-        return applyDefaults(config)
+        return applyDefaults(raw.default)
       }
     }
     const parent = path.dirname(dir)

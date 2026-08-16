@@ -29,11 +29,11 @@ export const writeProvisionMarker = Effect.fn("homestead/write-provision-marker"
   const fs = yield* FileSystem.FileSystem
   const path = yield* Path.Path
   const file = markerPath(path, worktreeDir)
-  const encoded = yield* Schema.encodeUnknownEffect(ProvisionMarkerSchema)(marker).pipe(
-    Effect.orDie,
-  )
+  const encoded = yield* Schema.encodeEffect(
+    Schema.fromJsonString(ProvisionMarkerSchema),
+  )(marker).pipe(Effect.orDie)
   yield* fs.makeDirectory(path.dirname(file), { recursive: true }).pipe(Effect.orDie)
-  yield* fs.writeFileString(file, `${JSON.stringify(encoded, null, 2)}\n`)
+  yield* fs.writeFileString(file, `${encoded}\n`)
 })
 
 // Read the marker; `Option.none` when absent or unparseable (same forgiving

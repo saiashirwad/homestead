@@ -20,7 +20,7 @@ class NodeSystemError extends Data.TaggedError("NodeSystemError")<{
 
 const inProcessLocks = new Set<string>()
 
-export const probeSocket = (socketPath: string): Effect.Effect<SocketProbeResult, never> =>
+export const probeSocket = (socketPath: string): Effect.Effect<SocketProbeResult> =>
   Effect.callback((resume) => {
     let stat: fs.Stats | undefined
     try {

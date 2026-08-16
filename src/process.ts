@@ -54,6 +54,7 @@ export const run = Effect.fnUntraced(function* (
       new Error(`[homestead] ${label} failed: ${command} ${args.join(" ")} (exit ${code})`),
     )
   }
+  return undefined
 })
 
 export const capture = Effect.fnUntraced(function* (
@@ -88,10 +89,11 @@ export const spawnDetached = (
 export const killPid = (pid: number, signal: NodeJS.Signals | number = "SIGTERM"): void => {
   try {
     process.kill(pid, signal)
-  } catch (e: unknown) {
-    // SAFETY: Node process.kill throws SystemError with code property on ESRCH.
-    const errCode = (e as { readonly code?: unknown })?.code
-    if (errCode !== "ESRCH") throw e
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ESRCH") {
+      return
+    }
+    throw cause
   }
 }
 
