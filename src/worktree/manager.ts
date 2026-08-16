@@ -35,7 +35,9 @@ interface WorktreeState {
 const DEFAULT_MAX_IDEMPOTENCY_ENTRIES = 1000
 const PROTECTED_BRANCHES = new Set(["main", "master"])
 
-export interface WorktreeManagerShape {
+type PayloadRecord = Readonly<Record<string, string | number | boolean | null | undefined>>
+
+export interface WorktreeManagerApi {
   readonly validateRepoRoot: (
     repoRoot: string,
   ) => Effect.Effect<string, RepositoryNotFound | InvalidInput>
@@ -67,17 +69,18 @@ export interface WorktreeManagerShape {
   }) => Effect.Effect<ReadonlyArray<WorktreeInfo>, InvalidInput | RepositoryNotFound>
 }
 
-export class WorktreeManager extends Context.Service<WorktreeManager, WorktreeManagerShape>()(
+export class WorktreeManager extends Context.Service<WorktreeManager, WorktreeManagerApi>()(
   "homestead/worktree/manager/WorktreeManager",
 ) {}
 
-const computeFingerprint = (payload: Record<string, unknown>): string => {
+const computeFingerprint = (payload: PayloadRecord): string => {
   const keys = Object.keys(payload)
     .filter((k) => k !== "requestId")
     .toSorted()
-  const normalized: Record<string, unknown> = {}
+  const normalized: Record<string, string | number | boolean | null> = {}
   for (const k of keys) {
-    normalized[k] = payload[k] === undefined ? null : payload[k]
+    const val = payload[k]
+    normalized[k] = val === undefined ? null : val
   }
   return JSON.stringify(normalized)
 }
@@ -91,7 +94,7 @@ const hasControlChar = (s: string): boolean => {
 }
 
 const validateWorktreeName = (name: string): Effect.Effect<string, InvalidInput> => {
-  if (!name || typeof name !== "string") {
+  if (!name || name.length === 0) {
     return InvalidInput.make({
       message: "Worktree name must be a non-empty string",
       field: "name",
@@ -121,7 +124,7 @@ const validateWorktreeName = (name: string): Effect.Effect<string, InvalidInput>
 }
 
 export const make: Effect.Effect<
-  WorktreeManagerShape,
+  WorktreeManagerApi,
   never,
   FileSystem.FileSystem | Path.Path | Git | PortAllocator | ChildProcessSpawner.ChildProcessSpawner
 > = Effect.gen(function* () {
@@ -141,7 +144,7 @@ export const make: Effect.Effect<
     repoRoot: string,
   ): Effect.Effect<string, RepositoryNotFound | InvalidInput> =>
     Effect.gen(function* () {
-      if (!repoRoot || typeof repoRoot !== "string") {
+      if (!repoRoot || repoRoot.length === 0) {
         return yield* InvalidInput.make({
           message: "Repository root path must be a non-empty string",
           field: "repoRoot",
@@ -169,7 +172,7 @@ export const make: Effect.Effect<
   const checkOrRecordIdempotency = <T, E>(
     requestId: string,
     rpcTag: string,
-    payload: Record<string, unknown>,
+    payload: PayloadRecord,
     computation: Effect.Effect<T, E>,
   ): Effect.Effect<T, E | RequestIdConflict> =>
     Effect.gen(function* () {
@@ -184,6 +187,7 @@ export const make: Effect.Effect<
             message: `Request ID "${requestId}" has already been used with different parameters or RPC.`,
           })
         }
+        // SAFETY: Cached idempotency result matches original computation result type T.
         return existing.result as T
       }
 
@@ -210,11 +214,11 @@ export const make: Effect.Effect<
       return result
     })
 
-  const createWorktree: WorktreeManagerShape["createWorktree"] = (payload) =>
+  const createWorktree: WorktreeManagerApi["createWorktree"] = (payload) =>
     checkOrRecordIdempotency(
       payload.requestId,
       "v1/worktree/create",
-      payload as unknown as Record<string, unknown>,
+      payload,
       Effect.gen(function* () {
         const canonicalRepo = yield* validateRepoRoot(payload.repoRoot)
         const name = yield* validateWorktreeName(payload.name)
@@ -365,11 +369,11 @@ export const make: Effect.Effect<
       ),
     )
 
-  const removeWorktree: WorktreeManagerShape["removeWorktree"] = (payload) =>
+  const removeWorktree: WorktreeManagerApi["removeWorktree"] = (payload) =>
     checkOrRecordIdempotency(
       payload.requestId,
       "v1/worktree/remove",
-      payload as unknown as Record<string, unknown>,
+      payload,
       Effect.gen(function* () {
         const canonicalRepo = yield* validateRepoRoot(payload.repoRoot)
         const name = yield* validateWorktreeName(payload.name)
@@ -443,7 +447,7 @@ export const make: Effect.Effect<
       ),
     )
 
-  const listWorktrees: WorktreeManagerShape["listWorktrees"] = (payload) =>
+  const listWorktrees: WorktreeManagerApi["listWorktrees"] = (payload) =>
     Effect.gen(function* () {
       if (payload?.repoRoot !== undefined) {
         const canonicalRepo = yield* validateRepoRoot(payload.repoRoot)

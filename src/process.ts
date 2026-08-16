@@ -8,10 +8,21 @@ interface RunOptions {
   readonly env?: Record<string, string>
 }
 
-const makeOptions = (options: RunOptions | undefined) => ({
-  ...(options?.cwd === undefined ? {} : { cwd: options.cwd }),
-  ...(options?.env === undefined ? {} : { env: { ...process.env, ...options.env } }),
-})
+interface ProcessSpawnOptions {
+  cwd?: string | undefined
+  env?: { [key: string]: string | undefined } | undefined
+}
+
+const makeOptions = (options: RunOptions | undefined): ProcessSpawnOptions => {
+  const result: ProcessSpawnOptions = {}
+  if (options?.cwd !== undefined) {
+    result.cwd = options.cwd
+  }
+  if (options?.env !== undefined) {
+    result.env = { ...process.env, ...options.env }
+  }
+  return result
+}
 
 export const runExit = Effect.fnUntraced(function* (
   command: string,
@@ -78,6 +89,7 @@ export const killPid = (pid: number, signal: NodeJS.Signals | number = "SIGTERM"
   try {
     process.kill(pid, signal)
   } catch (e: unknown) {
+    // SAFETY: Node process.kill throws SystemError with code property on ESRCH.
     const errCode = (e as { readonly code?: unknown })?.code
     if (errCode !== "ESRCH") throw e
   }

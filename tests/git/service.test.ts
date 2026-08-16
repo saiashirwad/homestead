@@ -8,11 +8,11 @@ import * as nodePath from "node:path"
 import { Git, GitLive } from "../../src/git/service.ts"
 
 const TestLayer = Layer.provideMerge(GitLive, BunServices.layer)
-const run = <A>(eff: Effect.Effect<A, unknown, Git>): Promise<A> =>
-  Effect.runPromise(Effect.provide(eff, TestLayer) as Effect.Effect<A>)
+const run = <A, E>(eff: Effect.Effect<A, E, Git | BunServices.BunServices>): Promise<A> =>
+  Effect.runPromise(Effect.provide(eff, TestLayer))
 
 const sh = (cwd: string, ...args: ReadonlyArray<string>) =>
-  execFileSync("git", args as string[], { cwd, stdio: "pipe" }).toString()
+  execFileSync("git", [...args], { cwd, stdio: "pipe" }).toString()
 
 const makeRepo = (): string => {
   const root = mkdtempSync(nodePath.join(os.tmpdir(), "homestead-git-"))

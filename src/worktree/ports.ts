@@ -23,12 +23,14 @@ export const ReservationSchema = Schema.Struct({
 })
 export type Reservation = typeof ReservationSchema.Type
 
+const emptyReservations: Array<Reservation> = []
+
 // `reservations` defaults to `[]` so an absent/older file still decodes — mirrors
 // the zero-touch decoding defaults in tracking.ts / config-schema.ts.
 export const ReservationsFileSchema = Schema.Struct({
   reservations: Schema.Array(ReservationSchema).pipe(
     Schema.optional,
-    Schema.withDecodingDefault(Effect.succeed([] as Array<Reservation>)),
+    Schema.withDecodingDefault(Effect.succeed(emptyReservations)),
   ),
 })
 export type ReservationsFile = typeof ReservationsFileSchema.Type
@@ -45,12 +47,9 @@ export const isPidAlive = (pid: number): boolean => {
     process.kill(pid, 0)
     return true
   } catch (e: unknown) {
-    return (
-      typeof e === "object" &&
-      e !== null &&
-      "code" in e &&
-      (e as { readonly code?: unknown }).code === "EPERM"
-    )
+    // SAFETY: Node process.kill throws SystemError with code property on EPERM.
+    const errCode = (e as { readonly code?: unknown })?.code
+    return errCode === "EPERM"
   }
 }
 
@@ -110,14 +109,15 @@ export const readReservations = Effect.fn("homestead/read-reservations")(functio
   const file = reservationsPath(path, repoName)
 
   const exists = yield* fs.exists(file).pipe(Effect.orElseSucceed(() => false))
-  if (!exists) return [] as ReadonlyArray<Reservation>
+  const empty: ReadonlyArray<Reservation> = []
+  if (!exists) return empty
   const content = yield* fs.readFileString(file).pipe(Effect.orElseSucceed(() => ""))
-  if (content === "") return [] as ReadonlyArray<Reservation>
+  if (content === "") return empty
 
   const decoded = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(ReservationsFileSchema))(
     content,
   ).pipe(Effect.orElseSucceed(() => undefined))
-  return (decoded?.reservations ?? []) as ReadonlyArray<Reservation>
+  return decoded?.reservations ?? empty
 })
 
 // Raw registry write — NO lock. Callers hold the lockfile.

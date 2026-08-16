@@ -86,6 +86,7 @@ test("concurrent provisionTarget provisions assign distinct ports per branch", a
     slugify(repo.repoName),
     "reservations.json",
   )
+  // SAFETY: Parsed reservations JSON matches schema with reservations array.
   const remaining = JSON.parse(readFileSync(registry, "utf8"))
     .reservations as ReadonlyArray<unknown>
   expect(remaining).toEqual([])

@@ -9,13 +9,12 @@ const CONFIG_BASENAMES = [
   "homestead.config.mjs",
 ] as const
 
-const isConfigObject = (value: unknown): value is HomesteadConfig =>
-  typeof value === "object" && value !== null
-
-const defaultExport = (mod: unknown): HomesteadConfig | undefined => {
-  if (typeof mod !== "object" || mod === null || !("default" in mod)) return undefined
-  return isConfigObject(mod.default) ? mod.default : undefined
+interface ConfigModule {
+  readonly default?: HomesteadConfig | undefined
 }
+
+const defaultExport = (mod: ConfigModule | null | undefined): HomesteadConfig | undefined =>
+  mod?.default
 
 export const applyDefaults = (config: HomesteadConfig): HomesteadConfig => ({
   ...config,
@@ -42,11 +41,12 @@ export const loadConfig = Effect.fnUntraced(function* (startDir: string) {
     for (const base of CONFIG_BASENAMES) {
       const candidate = path.join(dir, base)
       if (yield* fs.exists(candidate)) {
-        const mod: unknown = yield* Effect.tryPromise({
+        // SAFETY: Dynamic import of config file resolves to an ES module with an optional default export.
+        const mod = (yield* Effect.tryPromise({
           try: () => import(pathToFileURL(candidate).href),
           catch: (cause) =>
             ConfigInvalid.make({ path: candidate, reason: `failed to import: ${String(cause)}` }),
-        })
+        })) as ConfigModule
         const config = defaultExport(mod)
         if (config === undefined) {
           return yield* ConfigInvalid.make({

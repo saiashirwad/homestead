@@ -6,8 +6,8 @@ import * as fs from "node:fs"
 import { prepareSocket, probeSocket, registerScopedSocketCleanup } from "../../src/rpc/lifecycle.ts"
 import { createStaleSocketFile, createTempSocket } from "../helpers.ts"
 
-const runWithEnv = <A, E>(effect: Effect.Effect<A, E, any>): Promise<A> =>
-  Effect.runPromise(Effect.provide(effect, BunServices.layer) as Effect.Effect<A, E, never>)
+const runWithEnv = <A, E>(effect: Effect.Effect<A, E, BunServices.BunServices>): Promise<A> =>
+  Effect.runPromise(Effect.provide(effect, BunServices.layer))
 
 describe("Socket Lifecycle & Probing", () => {
   it("probes absent socket as 'absent'", async () => {

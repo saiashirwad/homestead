@@ -12,6 +12,10 @@ export interface SocketOwnership {
   readonly releaseLock: () => void
 }
 
+interface NodeSystemError extends Error {
+  readonly code?: string | undefined
+}
+
 const inProcessLocks = new Set<string>()
 
 export const probeSocket = (socketPath: string): Effect.Effect<SocketProbeResult, never> =>
@@ -49,8 +53,8 @@ export const probeSocket = (socketPath: string): Effect.Effect<SocketProbeResult
       finish("live")
     })
 
-    client.on("error", (err: unknown) => {
-      const code = (err as { readonly code?: unknown })?.code
+    client.on("error", (err: NodeSystemError) => {
+      const code = err.code
       if (code === "ECONNREFUSED" || code === "ENOENT") {
         finish("dead")
       } else {
@@ -82,6 +86,7 @@ const acquireStartupLock = (
       fs.closeSync(fd)
       acquired = true
     } catch (err: unknown) {
+      // SAFETY: Node fs.openSync throws system errors with code property.
       const code = (err as { readonly code?: unknown })?.code
       if (code === "EEXIST") {
         let lockPid: number | undefined
@@ -102,6 +107,7 @@ const acquireStartupLock = (
             process.kill(lockPid, 0)
             isAlive = true
           } catch (e: unknown) {
+            // SAFETY: Node process.kill throws system error with code ESRCH if process is dead.
             const errCode = (e as { readonly code?: unknown })?.code
             isAlive = errCode !== "ESRCH"
           }

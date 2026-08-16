@@ -72,13 +72,13 @@ export const runSetup = Effect.fnUntraced(function* (
   plan: Plan,
   config: HomesteadConfig,
 ) {
-  const vars: Record<string, string> = {
+  const vars = {
     slug: plan.slug,
     branch: plan.branch,
     targetDir: plan.targetDir,
     primaryRoot: repo.primaryRoot,
     repoName: repo.repoName,
-  }
+  } satisfies Record<string, string>
   const envMap = Object.fromEntries(plan.envEdits)
 
   for (const step of config.setup ?? []) {
@@ -112,13 +112,13 @@ export const runTeardown = Effect.fnUntraced(function* (
   branch: string,
   config: HomesteadConfig,
 ) {
-  const vars: Record<string, string> = {
+  const vars = {
     slug,
     branch,
     targetDir: worktreeDir,
     primaryRoot: repo.primaryRoot,
     repoName: repo.repoName,
-  }
+  } satisfies Record<string, string>
 
   for (const step of config.teardown ?? []) {
     const argv = step.run.map((arg) => applyTemplate(arg, vars, {}))

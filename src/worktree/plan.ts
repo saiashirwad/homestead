@@ -163,9 +163,9 @@ export const resolvePlan = Effect.fnUntraced(function* (
     siblingEnvContents.push(yield* fs.readFileString(siblingEnv))
   }
 
-  const portEdits =
+  const portEdits: ReadonlyArray<readonly [string, string]> =
     ports.length === 0
-      ? ([] as ReadonlyArray<readonly [string, string]>)
+      ? []
       : yield* withRegistryLock(
           repo.repoName,
           Effect.gen(function* () {

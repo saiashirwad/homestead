@@ -2,6 +2,22 @@ import { Context, Effect, Layer, Ref } from "effect"
 import { Git } from "./service.ts"
 import type { MergeResult, WorktreePorcelainEntry } from "./service.ts"
 
+export interface GitJournal {
+  merges: Array<{ cwd: string; branch: string }>
+  aborts: Array<string>
+  commits: Array<string>
+  adds: Array<string>
+  stashPushes: Array<string>
+  stashPops: Array<string>
+  worktreeAdds: Array<{ cwd: string; dir: string; branch: string }>
+  worktreeRemoves: Array<{ cwd: string; path: string }>
+  prunes: Array<string>
+  branchCreates: Array<{ cwd: string; name: string; startPoint: string }>
+  branchDeletes: Array<{ cwd: string; name: string }>
+  remoteDeletes: Array<{ cwd: string; remote: string; name: string }>
+  fetches: Array<{ cwd: string; remote: string; refspec: string }>
+}
+
 export interface GitTestApi {
   readonly setCommonDir: (cwd: string, dir: string) => Effect.Effect<void>
   readonly setSymbolicRef: (
@@ -28,21 +44,7 @@ export interface GitTestApi {
   readonly setShortHead: (cwd: string, sha: string) => Effect.Effect<void>
   readonly setTopLevel: (cwd: string, path: string) => Effect.Effect<void>
   readonly setBranchDeleteResult: (cwd: string, name: string, ok: boolean) => Effect.Effect<void>
-  readonly journal: () => Effect.Effect<{
-    merges: Array<{ cwd: string; branch: string }>
-    aborts: Array<string>
-    commits: Array<string>
-    adds: Array<string>
-    stashPushes: Array<string>
-    stashPops: Array<string>
-    worktreeAdds: Array<{ cwd: string; dir: string; branch: string }>
-    worktreeRemoves: Array<{ cwd: string; path: string }>
-    prunes: Array<string>
-    branchCreates: Array<{ cwd: string; name: string; startPoint: string }>
-    branchDeletes: Array<{ cwd: string; name: string }>
-    remoteDeletes: Array<{ cwd: string; remote: string; name: string }>
-    fetches: Array<{ cwd: string; remote: string; refspec: string }>
-  }>
+  readonly journal: () => Effect.Effect<GitJournal>
 }
 
 export class GitTestHandle extends Context.Service<GitTestHandle, GitTestApi>()(
@@ -66,20 +68,20 @@ const buildGitTest = Effect.gen(function* () {
   const statusV2Map = yield* Ref.make(new Map<string, string>())
   const shortHeads = yield* Ref.make(new Map<string, string>())
   const topLevels = yield* Ref.make(new Map<string, string>())
-  const journal = yield* Ref.make({
-    merges: [] as Array<{ cwd: string; branch: string }>,
-    aborts: [] as Array<string>,
-    commits: [] as Array<string>,
-    adds: [] as Array<string>,
-    stashPushes: [] as Array<string>,
-    stashPops: [] as Array<string>,
-    worktreeAdds: [] as Array<{ cwd: string; dir: string; branch: string }>,
-    worktreeRemoves: [] as Array<{ cwd: string; path: string }>,
-    prunes: [] as Array<string>,
-    branchCreates: [] as Array<{ cwd: string; name: string; startPoint: string }>,
-    branchDeletes: [] as Array<{ cwd: string; name: string }>,
-    remoteDeletes: [] as Array<{ cwd: string; remote: string; name: string }>,
-    fetches: [] as Array<{ cwd: string; remote: string; refspec: string }>,
+  const journal = yield* Ref.make<GitJournal>({
+    merges: [],
+    aborts: [],
+    commits: [],
+    adds: [],
+    stashPushes: [],
+    stashPops: [],
+    worktreeAdds: [],
+    worktreeRemoves: [],
+    prunes: [],
+    branchCreates: [],
+    branchDeletes: [],
+    remoteDeletes: [],
+    fetches: [],
   })
 
   const handle: GitTestApi = {

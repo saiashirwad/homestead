@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import { BunFileSystem, BunPath, BunSocket } from "@effect/platform-bun"
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc"
-import { Deferred, Effect, Fiber, Layer } from "effect"
+import { Deferred, Effect, Fiber, Layer, Scope } from "effect"
 import * as fs from "node:fs"
 import { makeServer } from "../../src/rpc/server.ts"
 import { makeHomesteadClient } from "../../src/rpc/shared.ts"
@@ -31,9 +31,8 @@ describe("Homestead UDS End-to-End RPC Flow", () => {
           )
 
           const runClient = <A, E>(
-            clientEff: Effect.Effect<A, E, any>,
-          ): Effect.Effect<A, E, never> =>
-            Effect.scoped(clientEff).pipe(Effect.provide(ClientEnv)) as Effect.Effect<A, E, never>
+            clientEff: Effect.Effect<A, E, RpcClient.Protocol | Scope.Scope>,
+          ) => Effect.scoped(clientEff).pipe(Effect.provide(ClientEnv))
 
           const pong = yield* runClient(
             Effect.gen(function* () {
