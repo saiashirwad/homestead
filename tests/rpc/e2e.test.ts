@@ -20,7 +20,10 @@ describe("Homestead UDS End-to-End RPC Flow", () => {
           const readyDeferred = yield* Deferred.make<void>()
 
           const serverFiber = yield* Effect.forkScoped(
-            makeServer(tempSock.path, { onReady: readyDeferred }),
+            makeServer(tempSock.path, {
+              onReady: readyDeferred,
+              registryFilePath: fixture.registryFile,
+            }),
           )
 
           yield* Deferred.await(readyDeferred)
@@ -85,6 +88,43 @@ describe("Homestead UDS End-to-End RPC Flow", () => {
             }),
           )
           expect(listAfter.some((w) => w.name === "e2e-feature-branch")).toBe(false)
+
+          const workspace = yield* runClient(
+            Effect.gen(function* () {
+              const client = yield* makeHomesteadClient
+              return yield* client.createWorkspace({
+                requestId: "e2e-workspace-create",
+                projectRoot: fixture.dir,
+                name: "e2e-workspace",
+                from: "main",
+              })
+            }),
+          )
+          expect(workspace.provider).toBe("worktree")
+          expect(workspace.state).toBe("ready")
+
+          const inspected = yield* runClient(
+            Effect.gen(function* () {
+              const client = yield* makeHomesteadClient
+              return yield* client.getWorkspace({
+                projectRoot: fixture.dir,
+                name: workspace.name,
+              })
+            }),
+          )
+          expect(inspected.id).toBe(workspace.id)
+
+          yield* runClient(
+            Effect.gen(function* () {
+              const client = yield* makeHomesteadClient
+              yield* client.reconcileWorkspaces({ projectRoot: fixture.dir })
+              return yield* client.removeWorkspace({
+                requestId: "e2e-workspace-remove",
+                projectRoot: fixture.dir,
+                name: workspace.name,
+              })
+            }),
+          )
 
           yield* runClient(
             Effect.gen(function* () {

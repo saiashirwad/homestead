@@ -4,10 +4,11 @@ import { Console, Deferred, Effect, Layer } from "effect"
 import { makeHomesteadHandlers } from "./handlers.ts"
 import { prepareSocket, registerScopedSocketCleanup } from "./lifecycle.ts"
 import { getDefaultSocketPath, HomesteadRpcs } from "./shared.ts"
-import { WorktreeManagerLive } from "../worktree/manager.ts"
+import { makeAppLayer } from "../runtime.ts"
 
 export interface MakeServerOptions {
   readonly onReady?: Deferred.Deferred<void>
+  readonly registryFilePath?: string | undefined
 }
 
 export const makeServer = (
@@ -21,7 +22,14 @@ export const makeServer = (
 
     const HandlersLive = makeHomesteadHandlers(
       Deferred.succeed(shutdownSignal, void 0).pipe(Effect.asVoid),
-    ).pipe(Layer.provide(WorktreeManagerLive), Layer.provide(BunServices.layer))
+    ).pipe(
+      Layer.provide(
+        makeAppLayer({
+          registry: { filePath: options?.registryFilePath },
+        }),
+      ),
+      Layer.provide(BunServices.layer),
+    )
 
     const ServerLive = RpcServer.layer(HomesteadRpcs).pipe(
       Layer.provideMerge(RpcServer.layerProtocolSocketServer),

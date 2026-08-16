@@ -5,24 +5,38 @@ import * as path from "node:path"
 
 export interface TempGitRepo {
   readonly dir: string
+  readonly root: string
+  readonly workspacesDir: string
+  readonly registryFile: string
   readonly cleanup: () => void
 }
 
 export const createTempGitRepo = (): TempGitRepo => {
-  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "homestead-repo-fixture-")))
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "homestead-repo-fixture-")))
+  const dir = path.join(root, path.basename(root))
+  const workspacesDir = path.join(root, "workspaces")
+  const registryFile = path.join(root, "state", "workspaces.json")
+  fs.mkdirSync(dir)
   execFileSync("git", ["init", "-b", "main"], { cwd: dir, stdio: "ignore" })
   execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: dir, stdio: "ignore" })
   execFileSync("git", ["config", "user.name", "Test"], { cwd: dir, stdio: "ignore" })
   execFileSync("git", ["config", "commit.gpgsign", "false"], { cwd: dir, stdio: "ignore" })
   fs.writeFileSync(path.join(dir, "README.md"), "# test repo\n")
+  fs.writeFileSync(
+    path.join(dir, "homestead.config.ts"),
+    `export default { worktreeDir: ({ slug }: { slug: string }) => ${JSON.stringify(workspacesDir)} + "/" + slug }\n`,
+  )
   execFileSync("git", ["add", "."], { cwd: dir, stdio: "ignore" })
   execFileSync("git", ["commit", "-m", "initial commit"], { cwd: dir, stdio: "ignore" })
 
   return {
     dir,
+    root,
+    workspacesDir,
+    registryFile,
     cleanup: () => {
       try {
-        fs.rmSync(dir, { recursive: true, force: true })
+        fs.rmSync(root, { recursive: true, force: true })
       } catch {}
     },
   }

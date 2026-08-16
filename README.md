@@ -1,8 +1,8 @@
 # homestead
 
-Programmable Git worktree orchestration with dynamic port allocation, isolated environments, and a typed RPC control plane.
+An Effect-native control plane for isolated, reproducible development Workspaces.
 
-Built for **AI coding agents, multi-agent parallel executors, CI pipelines, and developer tooling** that need to spin up and tear down isolated Git workspaces without colliding on ports, environment variables, or database state.
+Homestead gives people, scripts, CI systems, and future agent runtimes the same durable Workspace lifecycle. The first Provider uses Git worktrees; the public model leaves room for containers and remote environments.
 
 ## Installation
 
@@ -21,12 +21,14 @@ bun add -g homestead
 
 ## Why Homestead?
 
-When orchestrating parallel agents or background tasks across Git worktrees:
+When running parallel development tasks:
 
 - **Port Contention**: Every instance tries to bind `:3000` or `:5173`. Homestead scans active listeners and sibling worktrees to allocate conflict-free ports deterministically.
 - **Environment Collision**: Worktrees overwrite the shared `.env`. Homestead generates branch-isolated `.env` files with dynamic ports and derived config (e.g., unique database names).
 - **Service & Setup Coordination**: Automates prerequisite health checks (Postgres, Redis) and setup commands (`bun install`, migrations) before the worktree is handed off.
-- **Idempotent Control Plane**: Built-in `requestId` deduplication ensures agent retries replay identical results without duplicating worktrees or corrupting state.
+- **Durable Lifecycle**: Workspace identity, base revision, state, ports, Provider capabilities, and metadata survive daemon restarts.
+- **Transactional Cleanup**: Failed or cancelled provisioning closes the Workspace scope, releases reservations, and removes the partial worktree and branch.
+- **Idempotent Control Plane**: Built-in `requestId` deduplication prevents retries from duplicating Workspaces in one daemon lifetime.
 
 ---
 
@@ -41,24 +43,30 @@ import { Effect } from "effect"
 const program = Effect.gen(function* () {
   const client = yield* makeClient()
 
-  // 1. Provision an isolated worktree
-  const worktree = yield* client.createWorktree({
-    requestId: "agent-task-42",
-    repoRoot: process.cwd(),
+  // 1. Provision an isolated Workspace
+  const workspace = yield* client.createWorkspace({
+    requestId: "task-42",
+    projectRoot: process.cwd(),
     name: "feature-billing",
     from: "main", // optional base ref
   })
 
-  console.log(`Worktree directory: ${worktree.path}`)
-  console.log(`Allocated ports:`, worktree.ports) // e.g. { PORT: 3001, VITE_PORT: 5174 }
+  console.log(`Workspace ID: ${workspace.id}`)
+  console.log(`Provider: ${workspace.provider}`)
+  console.log(`Workspace directory: ${workspace.rootPath}`)
+  console.log(`Allocated ports:`, workspace.ports)
 
-  // 2. Query active worktrees
-  const active = yield* client.listWorktrees({ repoRoot: process.cwd() })
+  // 2. Inspect or query active Workspaces
+  const inspected = yield* client.getWorkspace({
+    projectRoot: process.cwd(),
+    name: workspace.name,
+  })
+  const active = yield* client.listWorkspaces({ projectRoot: process.cwd() })
 
-  // 3. Teardown and clean up after task completion
-  yield* client.removeWorktree({
-    requestId: "agent-task-42-cleanup",
-    repoRoot: process.cwd(),
+  // 3. Tear down after task completion
+  yield* client.removeWorkspace({
+    requestId: "task-42-cleanup",
+    projectRoot: process.cwd(),
     name: "feature-billing",
   })
 })
@@ -68,13 +76,17 @@ Effect.runPromise(program)
 
 ### Client API
 
-| Method                  | Payload                                 | Returns                               | Description                                                  |
-| ----------------------- | --------------------------------------- | ------------------------------------- | ------------------------------------------------------------ |
-| `client.createWorktree` | `{ requestId, repoRoot, name, from? }`  | `Effect<WorktreeInfo>`                | Creates worktree, allocates ports, writes `.env`, runs setup |
-| `client.listWorktrees`  | `{ repoRoot? }`                         | `Effect<ReadonlyArray<WorktreeInfo>>` | Lists managed worktrees with paths and port allocations      |
-| `client.removeWorktree` | `{ requestId, repoRoot, name, force? }` | `Effect<RemoveWorktreeResult>`        | Runs teardown hooks, removes worktree and branch             |
-| `client.ping`           | `void`                                  | `Effect<{ timestamp: number }>`       | Health check probe                                           |
-| `client.shutdown`       | `void`                                  | `Effect<void>`                        | Gracefully stops the daemon                                  |
+| Method                       | Description                                                       |
+| ---------------------------- | ----------------------------------------------------------------- |
+| `client.createWorkspace`     | Creates and transactionally provisions a Workspace                |
+| `client.getWorkspace`        | Inspects one Workspace, including Provider capabilities and state |
+| `client.listWorkspaces`      | Lists persisted Workspaces                                        |
+| `client.removeWorkspace`     | Runs teardown and closes the Workspace scope                      |
+| `client.reconcileWorkspaces` | Reconciles persisted records with actual Provider state           |
+| `client.ping`                | Checks daemon health                                              |
+| `client.shutdown`            | Gracefully stops the daemon without deleting completed Workspaces |
+
+The `createWorktree`, `listWorktrees`, and `removeWorktree` methods remain available as backward-compatible aliases. Workspace records are stored atomically in `~/.homestead/state/workspaces.json`; set `HOMESTEAD_STATE_DIR` to choose another state directory.
 
 ---
 
@@ -136,6 +148,7 @@ homestead shutdown    # Stop the daemon
 homestead init        # Scaffold starter homestead.config.ts
 homestead create <name> [--from <ref>]
 homestead ls
+homestead inspect <name>
 homestead rm <name> [--force]
 ```
 

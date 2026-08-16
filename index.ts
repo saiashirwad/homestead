@@ -1,6 +1,37 @@
 export { loadConfig, loadConfigOrUndefined } from "./src/config.ts"
 export { provisionTarget, resolveRepo } from "./src/worktree/index.ts"
-export { WorktreeManager, WorktreeManagerLive } from "./src/worktree/manager.ts"
+export {
+  WorktreeManager,
+  WorktreeManagerLive,
+  makeWorktreeManagerLayer,
+  type WorktreeManagerApi,
+} from "./src/worktree/manager.ts"
+export {
+  WorkspaceManager,
+  type WorkspaceManagerApi,
+  type CreateWorkspaceError,
+  type RemoveWorkspaceError,
+} from "./src/workspace/manager.ts"
+export {
+  WorkspaceManagerLive,
+  makeWorkspaceManagerLayer,
+  type WorkspaceLiveOptions,
+} from "./src/workspace/live.ts"
+export {
+  WorkspaceProvider,
+  type WorkspaceProviderApi,
+  type ProviderWorkspace,
+  type PreparedWorkspace,
+  type PrepareWorkspaceRequest,
+  type DiscoveredWorkspace,
+} from "./src/workspace/provider.ts"
+export {
+  WorkspaceRegistry,
+  getDefaultWorkspaceRegistryPath,
+  type WorkspaceRegistryApi,
+  type WorkspaceRegistryError,
+  type WorkspaceRegistryOptions,
+} from "./src/workspace/registry.ts"
 export { makeServer, serverLayer } from "./src/rpc/server.ts"
 export { makeClient } from "./src/rpc/client.ts"
 export {
@@ -10,6 +41,11 @@ export {
   CreateWorktree,
   ListWorktrees,
   RemoveWorktree,
+  CreateWorkspace,
+  GetWorkspace,
+  ListWorkspaces,
+  RemoveWorkspace,
+  ReconcileWorkspaces,
   getDefaultSocketPath,
   type HomesteadClient,
 } from "./src/rpc/shared.ts"
@@ -19,6 +55,10 @@ export {
   WorktreeAlreadyExists,
   WorktreeNotFound,
   WorktreeRemovalRefused,
+  WorkspaceAlreadyExists,
+  WorkspaceNotFound,
+  WorkspaceRemovalRefused,
+  WorkspacePersistenceFailure,
   RequestIdConflict,
   ProvisionFailure,
   SocketInUseError,
@@ -30,6 +70,10 @@ export {
 export {
   WorktreeInfo,
   RemoveWorktreeResult,
+  WorkspaceInfo,
+  RemoveWorkspaceResult,
+  ProviderCapabilities,
+  WorkspaceLifecycleState,
   type HomesteadConfig,
   type PortSpec,
   type ServiceSpec,

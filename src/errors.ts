@@ -38,6 +38,43 @@ export class WorktreeRemovalRefused extends Schema.TaggedError<WorktreeRemovalRe
   },
 ) {}
 
+export class WorkspaceAlreadyExists extends Schema.TaggedError<WorkspaceAlreadyExists>()(
+  "WorkspaceAlreadyExists",
+  {
+    name: Schema.String,
+    projectRoot: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+export class WorkspaceNotFound extends Schema.TaggedError<WorkspaceNotFound>()(
+  "WorkspaceNotFound",
+  {
+    name: Schema.String,
+    projectRoot: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+export class WorkspaceRemovalRefused extends Schema.TaggedError<WorkspaceRemovalRefused>()(
+  "WorkspaceRemovalRefused",
+  {
+    name: Schema.String,
+    projectRoot: Schema.String,
+    reason: Schema.String,
+    message: Schema.String,
+  },
+) {}
+
+export class WorkspacePersistenceFailure extends Schema.TaggedError<WorkspacePersistenceFailure>()(
+  "WorkspacePersistenceFailure",
+  {
+    operation: Schema.String,
+    path: Schema.String,
+    detail: Schema.String,
+  },
+) {}
+
 export class RequestIdConflict extends Schema.TaggedError<RequestIdConflict>()(
   "RequestIdConflict",
   {

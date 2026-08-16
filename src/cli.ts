@@ -9,7 +9,7 @@ import { makeClient } from "./rpc/client.ts"
 import { getDefaultSocketPath } from "./rpc/shared.ts"
 import { makeServer } from "./rpc/server.ts"
 import { resolveRepo } from "./worktree/repo.ts"
-import { WorktreeManager } from "./worktree/manager.ts"
+import { WorkspaceManager } from "./workspace/manager.ts"
 import { AppLayer } from "./runtime.ts"
 
 const initCommand = Command.make("init", {}, () =>
@@ -68,7 +68,7 @@ const serverCommand = Command.make(
 const createCommand = Command.make(
   "create",
   {
-    name: Argument.string("name").pipe(Argument.withDescription("worktree / branch name")),
+    name: Argument.string("name").pipe(Argument.withDescription("Workspace / branch name")),
     from: Flag.optional(Flag.string("from")).pipe(
       Flag.withDescription("base ref to branch from (default: repo default branch)"),
     ),
@@ -79,12 +79,12 @@ const createCommand = Command.make(
   ({ name, from, repo }) =>
     Effect.gen(function* () {
       const repoRoot = Option.getOrElse(repo, () => process.cwd())
-      const manager = yield* WorktreeManager
-      const canonicalRepo = yield* manager.validateRepoRoot(repoRoot)
+      const manager = yield* WorkspaceManager
+      const canonicalRepo = yield* manager.validateProjectRoot(repoRoot)
 
-      const info = yield* manager.createWorktree({
+      const info = yield* manager.createWorkspace({
         requestId: crypto.randomUUID(),
-        repoRoot: canonicalRepo,
+        projectRoot: canonicalRepo,
         name,
         from: Option.getOrUndefined(from),
       })
@@ -94,10 +94,12 @@ const createCommand = Command.make(
         portKeys.length > 0
           ? ` (ports: ${portKeys.map((k) => `${k}=${info.ports[k]}`).join(", ")})`
           : ""
-      yield* Console.log(`\n✅ Worktree "${info.name}" ready at ${info.path}${portsStr}`)
+      yield* Console.log(
+        `\n✅ Workspace "${info.name}" ready${info.rootPath === undefined ? "" : ` at ${info.rootPath}`}${portsStr}`,
+      )
     }),
 ).pipe(
-  Command.withDescription("provision an isolated worktree with allocated ports and derived .env"),
+  Command.withDescription("provision an isolated Workspace with allocated ports and derived .env"),
 )
 
 const listCommand = Command.make(
@@ -110,12 +112,12 @@ const listCommand = Command.make(
   ({ repo }) =>
     Effect.gen(function* () {
       const repoRoot = Option.getOrElse(repo, () => process.cwd())
-      const manager = yield* WorktreeManager
-      const canonicalRepo = yield* manager.validateRepoRoot(repoRoot)
-      const worktrees = yield* manager.listWorktrees({ repoRoot: canonicalRepo })
+      const manager = yield* WorkspaceManager
+      const canonicalRepo = yield* manager.validateProjectRoot(repoRoot)
+      const workspaces = yield* manager.listWorkspaces({ projectRoot: canonicalRepo })
 
-      if (worktrees.length === 0) {
-        yield* Console.log("No worktrees found.")
+      if (workspaces.length === 0) {
+        yield* Console.log("No Workspaces found.")
         return
       }
 
@@ -125,19 +127,19 @@ const listCommand = Command.make(
       yield* Console.log(
         "-------------------- -------------------- ---------------------------- ----------------------------------------",
       )
-      for (const wt of worktrees) {
+      for (const workspace of workspaces) {
         const portsStr =
-          Object.entries(wt.ports)
+          Object.entries(workspace.ports)
             .map(([k, v]) => `${k}=${v}`)
             .join(" ") || "—"
-        const namePad = wt.name.padEnd(20).slice(0, 20)
-        const branchPad = wt.branch.padEnd(20).slice(0, 20)
+        const namePad = workspace.name.padEnd(20).slice(0, 20)
+        const branchPad = workspace.branch.padEnd(20).slice(0, 20)
         const portsPad = portsStr.padEnd(28).slice(0, 28)
-        yield* Console.log(`${namePad} ${branchPad} ${portsPad} ${wt.path}`)
+        yield* Console.log(`${namePad} ${branchPad} ${portsPad} ${workspace.rootPath ?? "—"}`)
       }
       yield* Console.log("")
     }),
-).pipe(Command.withDescription("list active worktrees in the repository"))
+).pipe(Command.withDescription("list active Workspaces in the Project"))
 
 const lsCommand = Command.make(
   "ls",
@@ -149,12 +151,12 @@ const lsCommand = Command.make(
   ({ repo }) =>
     Effect.gen(function* () {
       const repoRoot = Option.getOrElse(repo, () => process.cwd())
-      const manager = yield* WorktreeManager
-      const canonicalRepo = yield* manager.validateRepoRoot(repoRoot)
-      const worktrees = yield* manager.listWorktrees({ repoRoot: canonicalRepo })
+      const manager = yield* WorkspaceManager
+      const canonicalRepo = yield* manager.validateProjectRoot(repoRoot)
+      const workspaces = yield* manager.listWorkspaces({ projectRoot: canonicalRepo })
 
-      if (worktrees.length === 0) {
-        yield* Console.log("No worktrees found.")
+      if (workspaces.length === 0) {
+        yield* Console.log("No Workspaces found.")
         return
       }
 
@@ -164,15 +166,15 @@ const lsCommand = Command.make(
       yield* Console.log(
         "-------------------- -------------------- ---------------------------- ----------------------------------------",
       )
-      for (const wt of worktrees) {
+      for (const workspace of workspaces) {
         const portsStr =
-          Object.entries(wt.ports)
+          Object.entries(workspace.ports)
             .map(([k, v]) => `${k}=${v}`)
             .join(" ") || "—"
-        const namePad = wt.name.padEnd(20).slice(0, 20)
-        const branchPad = wt.branch.padEnd(20).slice(0, 20)
+        const namePad = workspace.name.padEnd(20).slice(0, 20)
+        const branchPad = workspace.branch.padEnd(20).slice(0, 20)
         const portsPad = portsStr.padEnd(28).slice(0, 28)
-        yield* Console.log(`${namePad} ${branchPad} ${portsPad} ${wt.path}`)
+        yield* Console.log(`${namePad} ${branchPad} ${portsPad} ${workspace.rootPath ?? "—"}`)
       }
       yield* Console.log("")
     }),
@@ -181,7 +183,7 @@ const lsCommand = Command.make(
 const rmCommand = Command.make(
   "rm",
   {
-    name: Argument.string("name").pipe(Argument.withDescription("worktree name to remove")),
+    name: Argument.string("name").pipe(Argument.withDescription("Workspace name to remove")),
     repo: Flag.optional(Flag.string("repo")).pipe(
       Flag.withDescription("repository root (default: current working directory repo)"),
     ),
@@ -192,27 +194,55 @@ const rmCommand = Command.make(
   ({ name, repo, force }) =>
     Effect.gen(function* () {
       const repoRoot = Option.getOrElse(repo, () => process.cwd())
-      const manager = yield* WorktreeManager
-      const canonicalRepo = yield* manager.validateRepoRoot(repoRoot)
+      const manager = yield* WorkspaceManager
+      const canonicalRepo = yield* manager.validateProjectRoot(repoRoot)
 
-      yield* manager.removeWorktree({
+      yield* manager.removeWorkspace({
         requestId: crypto.randomUUID(),
-        repoRoot: canonicalRepo,
+        projectRoot: canonicalRepo,
         name,
         force,
       })
 
-      yield* Console.log(`\n✅ Worktree "${name}" removed successfully`)
+      yield* Console.log(`\n✅ Workspace "${name}" removed successfully`)
     }),
-).pipe(Command.withDescription("remove a worktree and clean up its resources"))
+).pipe(Command.withDescription("remove a Workspace and clean up its resources"))
+
+const inspectCommand = Command.make(
+  "inspect",
+  {
+    name: Argument.string("name").pipe(Argument.withDescription("Workspace name")),
+    repo: Flag.optional(Flag.string("repo")).pipe(
+      Flag.withDescription("Project root (default: current working directory Project)"),
+    ),
+  },
+  ({ name, repo }) =>
+    Effect.gen(function* () {
+      const projectRoot = Option.getOrElse(repo, () => process.cwd())
+      const manager = yield* WorkspaceManager
+      const workspace = yield* manager.getWorkspace({ projectRoot, name })
+      yield* Console.log(`Workspace: ${workspace.name}`)
+      yield* Console.log(`ID:        ${workspace.id}`)
+      yield* Console.log(`State:     ${workspace.state}`)
+      yield* Console.log(`Provider:  ${workspace.provider}`)
+      yield* Console.log(
+        `Isolation: ${workspace.providerCapabilities.filesystemIsolation} filesystem, ${workspace.providerCapabilities.networkIsolation} network`,
+      )
+      yield* Console.log(`Project:   ${workspace.projectRoot}`)
+      yield* Console.log(`Branch:    ${workspace.branch}`)
+      yield* Console.log(`Base:      ${workspace.baseRevision}`)
+      yield* Console.log(`Root:      ${workspace.rootPath ?? "not exposed"}`)
+    }),
+).pipe(Command.withDescription("inspect one managed Workspace"))
 
 const homestead = Command.make("homestead", {}).pipe(
-  Command.withDescription("deterministic git-worktree isolation with port allocation & RPC daemon"),
+  Command.withDescription("isolated, reproducible Workspaces with a typed control plane"),
   Command.withSubcommands([
     initCommand,
     createCommand,
     listCommand,
     lsCommand,
+    inspectCommand,
     rmCommand,
     serverCommand,
     pingCommand,

@@ -42,6 +42,7 @@ export interface GitTestApi {
   readonly setLocalBranches: (cwd: string, names: ReadonlyArray<string>) => Effect.Effect<void>
   readonly setStatusV2: (cwd: string, raw: string) => Effect.Effect<void>
   readonly setShortHead: (cwd: string, sha: string) => Effect.Effect<void>
+  readonly setRevision: (cwd: string, ref: string, sha: string) => Effect.Effect<void>
   readonly setTopLevel: (cwd: string, path: string) => Effect.Effect<void>
   readonly setBranchDeleteResult: (cwd: string, name: string, ok: boolean) => Effect.Effect<void>
   readonly journal: Effect.Effect<GitJournal>
@@ -67,6 +68,7 @@ const buildGitTest = Effect.gen(function* () {
   const localBranches = yield* Ref.make(new Map<string, string[]>())
   const statusV2Map = yield* Ref.make(new Map<string, string>())
   const shortHeads = yield* Ref.make(new Map<string, string>())
+  const revisions = yield* Ref.make(new Map<string, string>())
   const topLevels = yield* Ref.make(new Map<string, string>())
   const journal = yield* Ref.make<GitJournal>({
     merges: [],
@@ -107,6 +109,8 @@ const buildGitTest = Effect.gen(function* () {
       Ref.update(localBranches, (m) => new Map(m).set(cwd, [...names])),
     setStatusV2: (cwd, raw) => Ref.update(statusV2Map, (m) => new Map(m).set(cwd, raw)),
     setShortHead: (cwd, sha) => Ref.update(shortHeads, (m) => new Map(m).set(cwd, sha)),
+    setRevision: (cwd, ref, sha) =>
+      Ref.update(revisions, (m) => new Map(m).set(key(cwd, ref), sha)),
     setTopLevel: (cwd, path) => Ref.update(topLevels, (m) => new Map(m).set(cwd, path)),
     setBranchDeleteResult: (cwd, name, ok) =>
       Ref.update(branchDeleteResults, (m) => new Map(m).set(key(cwd, name), ok)),
@@ -193,6 +197,7 @@ const buildGitTest = Effect.gen(function* () {
       })),
     statusV2: (cwd) => Ref.get(statusV2Map).pipe(Effect.map((m) => m.get(cwd) ?? "")),
     shortHead: (cwd) => Ref.get(shortHeads).pipe(Effect.map((m) => m.get(cwd) ?? "")),
+    revision: (cwd, ref) => Ref.get(revisions).pipe(Effect.map((m) => m.get(key(cwd, ref)) ?? ref)),
     topLevel: (cwd) => Ref.get(topLevels).pipe(Effect.map((m) => m.get(cwd) ?? "")),
   }
 

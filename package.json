@@ -1,7 +1,7 @@
 {
   "name": "homestead",
   "version": "0.3.0",
-  "description": "Isolated dev environments for git worktrees — dynamic ports, derived .env, and an Effect RPC control plane.",
+  "description": "An Effect-native control plane for isolated, reproducible development workspaces.",
   "bin": {
     "homestead": "src/cli.ts"
   },

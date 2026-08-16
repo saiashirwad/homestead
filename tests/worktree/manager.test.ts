@@ -1,14 +1,45 @@
 import { describe, expect, it } from "bun:test"
 import { Effect } from "effect"
 import * as crypto from "node:crypto"
+import { mkdtempSync, rmSync } from "node:fs"
+import * as os from "node:os"
+import * as path from "node:path"
 import { createTempGitRepo } from "../helpers.ts"
-import { WorktreeManager, WorktreeManagerLive } from "../../src/worktree/manager.ts"
+import { WorktreeManager, makeWorktreeManagerLayer } from "../../src/worktree/manager.ts"
 
-const runTest = <A, E>(effect: Effect.Effect<A, E, WorktreeManager>) =>
-  Effect.runPromise(effect.pipe(Effect.provide(WorktreeManagerLive)))
+const runTest = async <A, E>(effect: Effect.Effect<A, E, WorktreeManager>): Promise<A> => {
+  const state = mkdtempSync(path.join(os.tmpdir(), "homestead-manager-state-"))
+  try {
+    return await Effect.runPromise(
+      effect.pipe(
+        Effect.provide(
+          makeWorktreeManagerLayer({
+            registry: { filePath: path.join(state, "workspaces.json") },
+          }),
+        ),
+      ),
+    )
+  } finally {
+    rmSync(state, { recursive: true, force: true })
+  }
+}
 
-const runTestExit = <A, E>(effect: Effect.Effect<A, E, WorktreeManager>) =>
-  Effect.runPromiseExit(effect.pipe(Effect.provide(WorktreeManagerLive)))
+const runTestExit = async <A, E>(effect: Effect.Effect<A, E, WorktreeManager>) => {
+  const state = mkdtempSync(path.join(os.tmpdir(), "homestead-manager-state-"))
+  try {
+    return await Effect.runPromiseExit(
+      effect.pipe(
+        Effect.provide(
+          makeWorktreeManagerLayer({
+            registry: { filePath: path.join(state, "workspaces.json") },
+          }),
+        ),
+      ),
+    )
+  } finally {
+    rmSync(state, { recursive: true, force: true })
+  }
+}
 
 describe("WorktreeManager - Repository and Input Validation", () => {
   it("validates existing isolated git repository fixture", async () => {
@@ -21,6 +52,21 @@ describe("WorktreeManager - Repository and Input Validation", () => {
         }),
       )
       expect(canonical).toBe(repoFixture.dir)
+    } finally {
+      repoFixture.cleanup()
+    }
+  })
+
+  it("keeps legacy listWorktrees discovery semantics for the primary checkout", async () => {
+    const repoFixture = createTempGitRepo()
+    try {
+      const worktrees = await runTest(
+        Effect.gen(function* () {
+          const manager = yield* WorktreeManager
+          return yield* manager.listWorktrees({ repoRoot: repoFixture.dir })
+        }),
+      )
+      expect(worktrees.some((worktree) => worktree.branch === "main")).toBe(true)
     } finally {
       repoFixture.cleanup()
     }

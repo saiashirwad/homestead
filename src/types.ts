@@ -62,6 +62,43 @@ export class WorktreeInfo extends Schema.Class<WorktreeInfo>("WorktreeInfo")({
   createdAt: Schema.Finite,
 }) {}
 
+export class ProviderCapabilities extends Schema.Class<ProviderCapabilities>(
+  "ProviderCapabilities",
+)({
+  filesystemIsolation: Schema.Literals(["rooted", "container", "vm"]),
+  networkIsolation: Schema.Literals(["host", "filtered", "isolated"]),
+  survivesHostDisconnect: Schema.Boolean,
+  supportsPortals: Schema.Boolean,
+}) {}
+
+export const WorkspaceLifecycleState = Schema.Literals(["provisioning", "ready", "removing"])
+export type WorkspaceLifecycleState = typeof WorkspaceLifecycleState.Type
+
+export class WorkspaceInfo extends Schema.Class<WorkspaceInfo>("WorkspaceInfo")({
+  id: Schema.String,
+  projectRoot: Schema.String,
+  name: Schema.String,
+  branch: Schema.String,
+  baseRevision: Schema.String,
+  provider: Schema.String,
+  providerCapabilities: ProviderCapabilities,
+  providerMetadata: Schema.Record(Schema.String, Schema.String),
+  rootPath: Schema.optional(Schema.String),
+  ports: Schema.Record(Schema.String, Schema.Finite),
+  state: WorkspaceLifecycleState,
+  createdAt: Schema.Finite,
+  updatedAt: Schema.Finite,
+}) {}
+
+export class RemoveWorkspaceResult extends Schema.Class<RemoveWorkspaceResult>(
+  "RemoveWorkspaceResult",
+)({
+  removed: Schema.Boolean,
+  id: Schema.String,
+  projectRoot: Schema.String,
+  name: Schema.String,
+}) {}
+
 export class RemoveWorktreeResult extends Schema.Class<RemoveWorktreeResult>(
   "RemoveWorktreeResult",
 )({

@@ -148,6 +148,7 @@ export class Git extends Context.Service<Git>()("homestead/git/service/Git", {
 
       statusV2: (cwd: string) => capture(cwd, ["status", "--porcelain=v2", "--branch"]),
       shortHead: (cwd: string) => capture(cwd, ["rev-parse", "--short", "HEAD"]),
+      revision: (cwd: string, ref: string) => capture(cwd, ["rev-parse", "--verify", ref]),
       topLevel: (cwd: string) => capture(cwd, ["rev-parse", "--show-toplevel"]),
     }
   }),
