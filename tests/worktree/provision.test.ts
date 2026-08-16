@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import type { SetupStep } from "../types.ts";
+import type { SetupStep } from "../../src/types.ts";
 
 test("setup steps structure validation", () => {
   const steps: ReadonlyArray<SetupStep> = [{ label: "install", run: ["bun", "install"] }];

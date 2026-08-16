@@ -4,8 +4,8 @@ import { Effect, FileSystem, Path, Semaphore } from "effect";
 import { mkdtempSync, rmSync } from "node:fs";
 import * as os from "node:os";
 import { join } from "node:path";
-import { nextFreePort } from "../text.ts";
-import type { PortSpec } from "../types.ts";
+import { nextFreePort } from "../../src/text.ts";
+import type { PortSpec } from "../../src/types.ts";
 import {
   type Reservation,
   claimReservations,
@@ -16,7 +16,7 @@ import {
   reservationsToClaim,
   withRegistryLock,
   writeReservations,
-} from "./ports.ts";
+} from "../../src/worktree/ports.ts";
 
 // The registry lives under ~/.homestead/state/<repo-slug>/. Mock os.homedir() to
 // a fresh temp dir per test (the same pattern spawn.test.ts uses) so each test is

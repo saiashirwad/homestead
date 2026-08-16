@@ -5,7 +5,7 @@ import {
   computePortEdits,
   pickFreePort,
   resolvePortEdits,
-} from "./plan.ts";
+} from "../../src/worktree/plan.ts";
 
 test("collectUsedPorts gathers integer port values from sibling env files", () => {
   const ports = [

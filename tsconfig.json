@@ -13,6 +13,6 @@
     "rewriteRelativeImportExtensions": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "index.ts", "test/**/*.ts"],
+  "include": ["src/**/*.ts", "index.ts", "tests/**/*.ts"],
   "exclude": ["node_modules", ".repos", "*.example.ts"]
 }

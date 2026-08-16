@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { Effect } from "effect";
-import { GitTest, GitTestHandle } from "../git/test.ts";
-import { branchFromOriginHead, resolveDefaultBaseRef } from "./base-ref.ts";
+import { GitTest, GitTestHandle } from "../../src/git/test.ts";
+import { branchFromOriginHead, resolveDefaultBaseRef } from "../../src/worktree/base-ref.ts";
 
 test("branchFromOriginHead strips origin/ prefix", () => {
   expect(branchFromOriginHead("origin/main")).toBe("main");

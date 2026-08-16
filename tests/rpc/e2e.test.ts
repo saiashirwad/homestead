@@ -3,9 +3,9 @@ import { BunFileSystem, BunPath, BunSocket } from "@effect/platform-bun";
 import { RpcClient, RpcSerialization } from "effect/unstable/rpc";
 import { Deferred, Effect, Fiber, Layer } from "effect";
 import * as fs from "node:fs";
-import { makeServer } from "./server.ts";
-import { makeHomesteadClient } from "./shared.ts";
-import { createTempGitRepo, createTempSocket } from "../test-helpers.ts";
+import { makeServer } from "../../src/rpc/server.ts";
+import { makeHomesteadClient } from "../../src/rpc/shared.ts";
+import { createTempGitRepo, createTempSocket } from "../helpers.ts";
 
 const ServerEnv = Layer.merge(BunFileSystem.layer, BunPath.layer);
 

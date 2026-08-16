@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { applyTemplate, nextFreePort, readEnvVar, setEnvVar, slugify } from "./text.ts";
+import { applyTemplate, nextFreePort, readEnvVar, setEnvVar, slugify } from "../src/text.ts";
 
 test("slugify collapses non-alphanumerics and trims", () => {
   expect(slugify("worktree/brave-river")).toBe("worktree_brave_river");

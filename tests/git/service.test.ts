@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import * as os from "node:os";
 import * as nodePath from "node:path";
-import { Git, GitLive } from "./service.ts";
+import { Git, GitLive } from "../../src/git/service.ts";
 
 const TestLayer = Layer.provideMerge(GitLive, BunServices.layer);
 const run = <A>(eff: Effect.Effect<A, unknown, Git>): Promise<A> =>

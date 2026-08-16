@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { parseWorktreePorcelain, worktreePathForBranch } from "./porcelain.ts";
+import { parseWorktreePorcelain, worktreePathForBranch } from "../../src/git/porcelain.ts";
 
 const SAMPLE_PORCELAIN = [
   "worktree /Users/dev/repos/githog",

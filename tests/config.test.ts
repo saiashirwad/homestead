@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
-import { applyDefaults } from "./config.ts";
-import type { HomesteadConfig } from "./types.ts";
+import { applyDefaults } from "../src/config.ts";
+import type { HomesteadConfig } from "../src/types.ts";
 
 test("applyDefaults fills missing arrays with empty defaults", () => {
   const config: HomesteadConfig = {};

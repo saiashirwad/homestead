@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { Effect } from "effect";
-import { Git } from "./service.ts";
-import { GitTest, GitTestHandle } from "./test.ts";
-import type { WorktreePorcelainEntry } from "./porcelain.ts";
+import { Git } from "../../src/git/service.ts";
+import { GitTest, GitTestHandle } from "../../src/git/test.ts";
+import type { WorktreePorcelainEntry } from "../../src/git/porcelain.ts";
 
 test("GitTest stages a merge conflict and journals the abort", async () => {
   await Effect.runPromise(

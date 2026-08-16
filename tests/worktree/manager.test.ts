@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import { Effect } from "effect";
 import * as crypto from "node:crypto";
-import { createTempGitRepo } from "../test-helpers.ts";
-import { WorktreeManager, WorktreeManagerLive } from "./manager.ts";
+import { createTempGitRepo } from "../helpers.ts";
+import { WorktreeManager, WorktreeManagerLive } from "../../src/worktree/manager.ts";
 
 const runTest = <A, E>(effect: Effect.Effect<A, E, WorktreeManager>) =>
   Effect.runPromise(effect.pipe(Effect.provide(WorktreeManagerLive)));

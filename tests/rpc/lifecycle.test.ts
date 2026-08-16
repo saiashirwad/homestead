@@ -7,8 +7,8 @@ import {
   prepareSocket,
   probeSocket,
   registerScopedSocketCleanup,
-} from "./lifecycle.ts";
-import { createStaleSocketFile, createTempSocket } from "../test-helpers.ts";
+} from "../../src/rpc/lifecycle.ts";
+import { createStaleSocketFile, createTempSocket } from "../helpers.ts";
 
 const runWithEnv = <A, E>(
   effect: Effect.Effect<A, E, any>,
