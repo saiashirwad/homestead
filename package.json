@@ -1,7 +1,7 @@
 {
   "name": "homestead",
   "version": "0.3.0",
-  "description": "Deterministic git-worktree isolation with port allocation & Effect RPC control-plane daemon.",
+  "description": "Isolated dev environments for git worktrees — dynamic ports, derived .env, and an Effect RPC control plane.",
   "module": "index.ts",
   "type": "module",
   "bin": {
