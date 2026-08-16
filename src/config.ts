@@ -1,4 +1,4 @@
-import { Cause, Effect, Exit, FileSystem, Option, Path } from "effect"
+import { Cause, Effect, Exit, FileSystem, Option, Path, Predicate, Schema } from "effect"
 import { pathToFileURL } from "node:url"
 import { ConfigInvalid, ConfigNotFound } from "./errors.ts"
 import type { HomesteadConfig } from "./types.ts"
@@ -9,11 +9,9 @@ const CONFIG_BASENAMES = [
   "homestead.config.mjs",
 ] as const
 
-interface ConfigModule {
-  readonly default?: HomesteadConfig | undefined
-}
-
-const isConfigModule = (cause: unknown): cause is ConfigModule => cause instanceof Object
+const ConfigModuleSchema = Schema.Struct({
+  default: Schema.optional(Schema.Unknown),
+})
 
 export const applyDefaults = (config: HomesteadConfig): HomesteadConfig => ({
   ...config,
@@ -47,13 +45,15 @@ export const loadConfig = Effect.fnUntraced(function* (startDir: string) {
           catch: (cause) =>
             ConfigInvalid.make({ path: candidate, reason: `failed to import: ${String(cause)}` }),
         })
-        if (!isConfigModule(raw) || raw.default === undefined) {
+        const modOpt = Schema.decodeUnknownOption(ConfigModuleSchema)(raw)
+        const config = Option.isSome(modOpt) ? modOpt.value.default : undefined
+        if (config === undefined || !Predicate.isObject(config)) {
           return yield* ConfigInvalid.make({
             path: candidate,
             reason: "exported no config — use `export default { ... } satisfies HomesteadConfig`",
           })
         }
-        return applyDefaults(raw.default)
+        return applyDefaults(config)
       }
     }
     const parent = path.dirname(dir)

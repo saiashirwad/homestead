@@ -271,7 +271,10 @@ export const make: Effect.Effect<
         const config = (yield* loadConfigOrUndefined(canonicalRepo).pipe(
           Effect.mapError((err) =>
             ProvisionFailure.make({
-              message: `Failed to load config: ${String(err)}`,
+              message:
+                err._tag === "ConfigInvalid"
+                  ? `Failed to load config (${err.path}): ${err.reason}`
+                  : `Failed to load config: ${err.message}`,
             }),
           ),
         )) ?? {
@@ -435,7 +438,10 @@ export const make: Effect.Effect<
         const config = (yield* loadConfigOrUndefined(canonicalRepo).pipe(
           Effect.mapError((err) =>
             ProvisionFailure.make({
-              message: `Failed to load config: ${String(err)}`,
+              message:
+                err._tag === "ConfigInvalid"
+                  ? `Failed to load config (${err.path}): ${err.reason}`
+                  : `Failed to load config: ${err.message}`,
             }),
           ),
         )) ?? {
