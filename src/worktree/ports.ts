@@ -128,15 +128,10 @@ export const writeReservations = Effect.fn("homestead/write-reservations")(funct
   yield* fs
     .makeDirectory(stateDir(path, repoName), { recursive: true })
     .pipe(Effect.orElseSucceed(() => undefined))
-  const encoded = yield* Schema.encodeEffect(
-    Schema.fromJsonString(ReservationsFileSchema),
-  )({
+  const encoded = yield* Schema.encodeEffect(Schema.fromJsonString(ReservationsFileSchema))({
     reservations: [...reservations],
   }).pipe(Effect.orDie)
-  yield* fs.writeFileString(
-    reservationsPath(path, repoName),
-    `${encoded}\n`,
-  )
+  yield* fs.writeFileString(reservationsPath(path, repoName), `${encoded}\n`)
 })
 
 const LOCK_RETRY_DELAY_MS = 25

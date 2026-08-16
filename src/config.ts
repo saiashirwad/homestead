@@ -13,8 +13,7 @@ interface ConfigModule {
   readonly default?: HomesteadConfig | undefined
 }
 
-const isConfigModule = (cause: unknown): cause is ConfigModule =>
-  cause instanceof Object
+const isConfigModule = (cause: unknown): cause is ConfigModule => cause instanceof Object
 
 export const applyDefaults = (config: HomesteadConfig): HomesteadConfig => ({
   ...config,

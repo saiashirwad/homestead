@@ -1,10 +1,8 @@
 # homestead
 
-Worktrees that don't fight over port 3000.
+Isolated development environments for Git worktrees.
 
-When you create a git worktree, you get a clean checkout in seconds. But both branches want the same ports, the same `.env`, and the same database.
-
-`homestead` provisions each worktree with unique ports, derived config, and runs your setup scripts automatically. It also runs a local daemon with a Unix domain socket RPC API so scripts, tools, and AI agents can spin up environments programmatically.
+When you create a worktree, sibling checkouts compete for port 3000, collide on `.env`, and conflict on database state. `homestead` automates worktree provisioning with collision-free port allocation, derived environment files, lifecycle hooks, and a typed RPC daemon.
 
 ```bash
 bun add -g homestead
@@ -14,50 +12,46 @@ homestead create feature-auth
 
 ---
 
-## What happens on `homestead create`
-
-1. **Git worktree**: runs `git worktree add` for your branch.
-2. **Ports**: scans sibling worktrees and local listeners, picking the next available ports starting from your configured base.
-3. **Environment**: copies `.env.example` (or `.env`), injects the allocated ports, and evaluates any derived variables (like `DATABASE_URL` with a branch-specific DB name).
-4. **Setup**: runs your configured setup steps (`bun install`, migrations, etc.) inside the new directory.
-
----
-
-## CLI
+## Quickstart
 
 ```bash
-# Provision a worktree (allocates ports, writes .env, runs setup)
+# Provision a new worktree (allocates ports, writes .env, runs setup)
 homestead create feature-auth
 homestead create feature-auth --from staging
 
-# List worktrees and allocated ports
+# List active worktrees and port allocations
 homestead ls
 
-# Remove a worktree and run teardown hooks
+# Teardown and delete a worktree
 homestead rm feature-auth
-homestead rm main --force
-
-# Daemon & IPC (Unix domain socket at ~/.homestead/run/daemon.sock)
-homestead server      # start the RPC daemon
-homestead ping        # check daemon status
-homestead shutdown    # stop the daemon
 ```
 
 ---
 
-## Config (`homestead.config.ts`)
+## How It Works
+
+1. **Worktree Checkout**: Creates a Git worktree for the requested branch.
+2. **Port Allocation**: Probes open sockets and sibling worktrees, assigning the next free port from your configured base.
+3. **Environment Derivation**: Copies `.env.example` / `.env`, injects dynamic ports, and computes derived values (such as isolated database URLs).
+4. **Lifecycle Hooks**: Verifies dependent services (e.g. Postgres, Redis) and runs setup commands (`bun install`, migrations) inside the target worktree.
+
+---
+
+## Configuration
+
+Add `homestead.config.ts` to your repository root:
 
 ```ts
 import type { HomesteadConfig } from "homestead"
 
 export default {
-  // Ports to allocate per worktree
+  // Ports dynamically allocated per worktree
   ports: [
     { key: "PORT", base: 3000 },
     { key: "VITE_PORT", base: 5173 },
   ],
 
-  // Environment file derivation
+  // Environment file template & derivation
   env: {
     source: ".env",
     fallback: ".env.example",
@@ -66,7 +60,7 @@ export default {
     }),
   },
 
-  // Ensure dependencies are reachable before setup
+  // Service readiness checks before setup runs
   services: [
     {
       name: "postgres",
@@ -76,24 +70,30 @@ export default {
     },
   ],
 
-  // Commands run inside the worktree after creation
+  // Commands executed in the worktree on creation
   setup: [
     { label: "install", run: ["bun", "install"] },
-    { label: "migrate", run: ["bun", "run", "db:migrate"], injectEnv: ["DATABASE_URL"] },
+    { label: "migrate", run: ["bun", "run", "db:migrate"] },
   ],
 
-  // Commands run before removing the worktree
+  // Commands executed before removing the worktree
   teardown: [{ label: "drop-db", run: ["bun", "run", "db:drop"] }],
 } satisfies HomesteadConfig
 ```
 
 ---
 
-## Control Plane (RPC over Unix Domain Socket)
+## Daemon & RPC API
 
-Homestead runs a typed RPC server (`@effect/rpc`) over a Unix domain socket at `~/.homestead/run/daemon.sock`.
+Homestead includes a daemon and typed client for programmatic control by scripts, CI, and AI agents:
 
-You can talk to it from Node/Bun or any language using line-delimited JSON (NDJSON) over the socket:
+```bash
+homestead server      # Start the daemon (~/.homestead/run/daemon.sock)
+homestead ping        # Check daemon health
+homestead shutdown    # Stop the daemon
+```
+
+### Programmatic Client
 
 ```ts
 import { makeClient } from "homestead"
@@ -102,24 +102,17 @@ import { Effect } from "effect"
 const program = Effect.gen(function* () {
   const client = yield* makeClient()
 
+  // Create an isolated worktree
   const worktree = yield* client.createWorktree({
     requestId: "task-101",
     repoRoot: process.cwd(),
-    name: "fix-nav",
+    name: "feature-billing",
   })
 
-  console.log(`Worktree ready at: ${worktree.path}`)
+  console.log(`Ready at: ${worktree.path}`)
   console.log(`Allocated ports:`, worktree.ports)
 })
 ```
-
-RPC endpoints:
-
-- `v1/daemon/ping`
-- `v1/daemon/shutdown`
-- `v1/worktree/create`
-- `v1/worktree/list`
-- `v1/worktree/remove`
 
 ---
 
